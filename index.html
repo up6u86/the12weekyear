@@ -19,6 +19,18 @@
     /* 隱藏滾動條的輔助樣式 */
     .scrollbar-hide::-webkit-scrollbar { display: none; }
     .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
+    
+    /* 翻頁時鐘的半透明遮罩效果 */
+    .flip-clock-mask {
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 50%;
+      background: linear-gradient(to bottom, rgba(255,255,255,0.05), rgba(255,255,255,0));
+      border-bottom: 1px solid rgba(0,0,0,0.5);
+      z-index: 10;
+    }
   </style>
 </head>
 <body>
@@ -32,13 +44,14 @@
     import { getFirestore, doc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 
     // 💡 若要啟用雲端同步，請將您的 Firebase 設定貼入此處
-    const firebaseConfig = {apiKey: "AIzaSyC3wmLa5LzK1gTdguArIbBjuIfMWmlrz5Q",
-  authDomain: "the12weekyear.firebaseapp.com",
-  projectId: "the12weekyear",
-  storageBucket: "the12weekyear.firebasestorage.app",
-  messagingSenderId: "937446028538",
-  appId: "1:937446028538:web:2401bef679c800a6c10543",
-  measurementId: "G-Z3NZK68VZJ"
+    const firebaseConfig = {
+      apiKey: "AIzaSyC3wmLa5LzK1gTdguArIbBjuIfMWmlrz5Q",
+      authDomain: "the12weekyear.firebaseapp.com",
+      projectId: "the12weekyear",
+      storageBucket: "the12weekyear.firebasestorage.app",
+      messagingSenderId: "937446028538",
+      appId: "1:937446028538:web:2401bef679c800a6c10543",
+      measurementId: "G-Z3NZK68VZJ"
     };
 
     let app, auth, db, appId = 'github-pages-12wy';
@@ -86,30 +99,26 @@
     });
 
     const INITIAL_DATA = {
+      // 🌟 新增：願景與倒數目標日
+      targetDate: '2026-12-31',
+      visionTitle: '',
+      visions: [],
       Q1: {
         lagging: [
-          { id: 'g1', name: '減重目標', start: 80, target: 75, current: 79, unit: 'kg', reverse: true },
-          { id: 'g2', name: '新台幣收入', start: 0, target: 100000, current: 25000, unit: '元', reverse: false },
-          { id: 'g3', name: '多益測驗', start: 600, target: 900, current: 720, unit: '分', reverse: false }
+          { id: 'g1', name: '目標1', start: 0, target: 100, current: 0, unit: '單位', reverse: false },
+          { id: 'g2', name: '目標2', start: 0, target: 100, current: 0, unit: '單位', reverse: false },
+          { id: 'g3', name: '目標3', start: 0, target: 100, current: 0, unit: '單位', reverse: false }
         ],
-        history: { 1: { g1: 85, g2: 90, g3: 80 }, 2: { g1: 75, g2: 80, g3: 70 } },
+        history: {},
         weeks: {
           1: {
             isEdited: true,
             tasks: [
-              { id: 't1', name: '晨跑 3km', goalId: 'g1', targetDays: 3, note: '下雨改室內', days: [true, false, true, false, true, false, false] },
-              { id: 't2', name: '不吃零食', goalId: 'g1', targetDays: 5, note: '', days: [true, true, true, false, true, true, false] },
-              { id: 't3', name: '單字 50 個', goalId: 'g3', targetDays: 7, note: '', days: [true, true, true, true, true, false, false] },
-              { id: 't4', name: '發送 5 封開發信', goalId: 'g2', targetDays: 4, note: '名單準備', days: [false, true, true, true, false, false, false] }
-            ]
-          },
-          2: {
-            isEdited: true,
-            tasks: [
-              { id: 't1', name: '晨跑 3km', goalId: 'g1', targetDays: 3, note: '', days: [true, true, true, true, false, false, false] },
-              { id: 't2', name: '不吃零食', goalId: 'g1', targetDays: 5, note: '', days: [true, true, true, true, true, true, true] },
-              { id: 't3', name: '單字 50 個', goalId: 'g3', targetDays: 7, note: '', days: [true, true, true, true, true, true, true] },
-              { id: 't4', name: '發送 10 封開發信', goalId: 'g2', targetDays: 4, note: '', days: [false, false, true, true, true, true, false] }
+              { id: 't1', name: '', goalId: '', targetDays: 7, note: '', days: Array(7).fill(false) },
+              { id: 't2', name: '', goalId: '', targetDays: 7, note: '', days: Array(7).fill(false) },
+              { id: 't3', name: '', goalId: '', targetDays: 7, note: '', days: Array(7).fill(false) },
+              { id: 't4', name: '', goalId: '', targetDays: 7, note: '', days: Array(7).fill(false) },
+              { id: 't5', name: '', goalId: '', targetDays: 7, note: '', days: Array(7).fill(false) }
             ]
           }
         }
@@ -184,6 +193,37 @@
       const [showPasteModal, setShowPasteModal] = useState(false);
       const [pasteText, setPasteText] = useState('');
 
+      // 今日日期與倒數計時運算
+      const today = new Date();
+      const todayStr = `${today.getMonth() + 1}/${today.getDate()}`;
+      
+      const targetDateObj = data?.targetDate ? new Date(data.targetDate) : new Date('2026-12-31');
+      const diffTime = targetDateObj - today;
+      let diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+      if (diffDays < 0) diffDays = 0;
+      const remainingWeeks = Math.floor(diffDays / 7);
+      const remainingDays = diffDays % 7;
+
+      // 檢查並補齊舊版資料
+      const migrateData = (parsed) => {
+        let migrated = { ...parsed };
+        if (migrated.lagging && !migrated.Q1) {
+          migrated = { Q1: migrated, Q2: createEmptyQuarter(), Q3: createEmptyQuarter(), Q4: createEmptyQuarter() };
+        } else {
+          migrated = {
+            ...migrated,
+            Q1: migrated.Q1 || createEmptyQuarter(), Q2: migrated.Q2 || createEmptyQuarter(),
+            Q3: migrated.Q3 || createEmptyQuarter(), Q4: migrated.Q4 || createEmptyQuarter()
+          };
+        }
+        // 補齊願景資料 (允許保留空字串與空陣列)
+        if (migrated.visionTitle === undefined) migrated.visionTitle = INITIAL_DATA.visionTitle;
+        if (migrated.visions === undefined) migrated.visions = [...INITIAL_DATA.visions];
+        if (migrated.targetDate === undefined) migrated.targetDate = INITIAL_DATA.targetDate;
+        
+        return migrated;
+      };
+
       // 1. 初始化 Auth
       useEffect(() => {
         const loadLocalData = () => {
@@ -191,15 +231,7 @@
           if (saved) {
              try {
                 let parsed = JSON.parse(saved);
-                if (parsed.lagging && !parsed.Q1) {
-                  parsed = { Q1: parsed, Q2: createEmptyQuarter(), Q3: createEmptyQuarter(), Q4: createEmptyQuarter() };
-                } else {
-                  parsed = {
-                    Q1: parsed.Q1 || createEmptyQuarter(), Q2: parsed.Q2 || createEmptyQuarter(),
-                    Q3: parsed.Q3 || createEmptyQuarter(), Q4: parsed.Q4 || createEmptyQuarter()
-                  };
-                }
-                setData(parsed);
+                setData(migrateData(parsed));
              } catch (e) { setData(INITIAL_DATA); }
           } else {
              setData(INITIAL_DATA);
@@ -217,7 +249,6 @@
             await signInAnonymously(auth);
           } catch (error) {
             console.error("Auth error:", error);
-            // 處理 Firebase 未啟用匿名登入或尚未設定的情況，優雅降級到本地儲存
             loadLocalData();
             setIsSyncing(false);
           }
@@ -241,19 +272,10 @@
         const docRef = doc(db, 'artifacts', appId, 'users', user.uid, 'data', 'dashboard');
         const unsubscribe = onSnapshot(docRef, (docSnap) => {
           if (docSnap.exists() && !docSnap.metadata.hasPendingWrites) {
-            let parsed = docSnap.data().payload;
-            if (parsed.lagging && !parsed.Q1) {
-              parsed = { Q1: parsed, Q2: createEmptyQuarter(), Q3: createEmptyQuarter(), Q4: createEmptyQuarter() };
-            } else {
-              parsed = {
-                Q1: parsed.Q1 || createEmptyQuarter(), Q2: parsed.Q2 || createEmptyQuarter(),
-                Q3: parsed.Q3 || createEmptyQuarter(), Q4: parsed.Q4 || createEmptyQuarter()
-              };
-            }
-            setData(parsed);
+            setData(migrateData(docSnap.data().payload));
           } else if (!docSnap.exists()) {
             const saved = localStorage.getItem('12wy_data');
-            const initData = saved ? JSON.parse(saved) : INITIAL_DATA;
+            const initData = saved ? migrateData(JSON.parse(saved)) : INITIAL_DATA;
             setData(initData);
             setDoc(docRef, { payload: initData }, { merge: true });
           }
@@ -309,11 +331,21 @@
 
       const handleLogout = async () => {
         await signOut(auth);
-        try {
-          await signInAnonymously(auth);
-        } catch (error) {
-          console.error("Auth error on logout:", error);
-        }
+        try { await signInAnonymously(auth); } catch (error) { console.error(error); }
+      };
+
+      // --- 願景板更新函數 ---
+      const updateVisionTitle = (e) => saveToCloud({ ...data, visionTitle: e.target.value });
+      const updateTargetDate = (e) => saveToCloud({ ...data, targetDate: e.target.value });
+      const updateVisionItem = (index, value) => {
+        const newVisions = [...data.visions];
+        newVisions[index] = value;
+        saveToCloud({ ...data, visions: newVisions });
+      };
+      const addVisionItem = () => saveToCloud({ ...data, visions: [...data.visions, ''] });
+      const removeVisionItem = (index) => {
+        const newVisions = data.visions.filter((_, i) => i !== index);
+        saveToCloud({ ...data, visions: newVisions });
       };
 
       const handleQuarterChange = (q) => {
@@ -325,26 +357,21 @@
 
       const activeWeekData = useMemo(() => {
         if (!activeQuarter) return { tasks: [], isInherited: false };
-
         if (activeQuarter.weeks[currentWeek] && activeQuarter.weeks[currentWeek].isEdited) {
           return { ...activeQuarter.weeks[currentWeek], isInherited: false };
         }
-
         let latestWeek = null;
         for (let w = currentWeek - 1; w >= 1; w--) {
           if (activeQuarter.weeks[w] && activeQuarter.weeks[w].isEdited) {
-            latestWeek = w;
-            break;
+            latestWeek = w; break;
           }
         }
-
         if (latestWeek) {
           const inheritedTasks = activeQuarter.weeks[latestWeek].tasks.map(t => ({
             ...t, days: Array(7).fill(false)
           }));
           return { tasks: inheritedTasks, isInherited: true };
         }
-
         return { tasks: [], isInherited: false };
       }, [activeQuarter, currentWeek]);
 
@@ -367,51 +394,23 @@
         saveToCloud(newData);
       };
 
-      const toggleDay = (taskId, dayIndex) => {
-        handleTaskAction(tasks => tasks.map(t => 
-          t.id === taskId ? { ...t, days: t.days.map((d, i) => i === dayIndex ? !d : d) } : t
-        ));
-      };
-
-      const updateTaskName = (taskId, newName) => {
-        handleTaskAction(tasks => tasks.map(t => t.id === taskId ? { ...t, name: newName } : t));
-      };
-
-      const updateTaskGoal = (taskId, newGoalId) => {
-        handleTaskAction(tasks => tasks.map(t => t.id === taskId ? { ...t, goalId: newGoalId } : t));
-      };
-
+      const toggleDay = (taskId, dayIndex) => handleTaskAction(tasks => tasks.map(t => t.id === taskId ? { ...t, days: t.days.map((d, i) => i === dayIndex ? !d : d) } : t));
+      const updateTaskName = (taskId, newName) => handleTaskAction(tasks => tasks.map(t => t.id === taskId ? { ...t, name: newName } : t));
+      const updateTaskGoal = (taskId, newGoalId) => handleTaskAction(tasks => tasks.map(t => t.id === taskId ? { ...t, goalId: newGoalId } : t));
       const updateTaskTargetDays = (taskId, target) => {
         let val = target;
         if (val !== '') {
           val = parseInt(target, 10);
-          if (isNaN(val)) val = '';
-          else if (val > 7) val = 7;
-          else if (val < 1) val = 1;
+          if (isNaN(val)) val = ''; else if (val > 7) val = 7; else if (val < 1) val = 1;
         }
         handleTaskAction(tasks => tasks.map(t => t.id === taskId ? { ...t, targetDays: val } : t));
       };
-
-      const updateTaskNote = (taskId, noteText) => {
-        handleTaskAction(tasks => tasks.map(t => t.id === taskId ? { ...t, note: noteText } : t));
-      };
-
-      const addTask = () => {
-        handleTaskAction(tasks => [
-          ...tasks, 
-          { id: `t_${Date.now()}`, name: '新任務', goalId: '', targetDays: 7, note: '', days: Array(7).fill(false) }
-        ]);
-      };
-
-      const deleteTask = (taskId) => {
-        if (confirm('確定刪除此任務？')) {
-          handleTaskAction(tasks => tasks.filter(t => t.id !== taskId));
-        }
-      };
+      const updateTaskNote = (taskId, noteText) => handleTaskAction(tasks => tasks.map(t => t.id === taskId ? { ...t, note: noteText } : t));
+      const addTask = () => handleTaskAction(tasks => [...tasks, { id: `t_${Date.now()}`, name: '新任務', goalId: '', targetDays: 7, note: '', days: Array(7).fill(false) }]);
+      const deleteTask = (taskId) => { if (confirm('確定刪除此任務？')) handleTaskAction(tasks => tasks.filter(t => t.id !== taskId)); };
 
       const handleBatchImport = () => {
         if (!pasteText.trim()) return;
-
         const lines = pasteText.split('\n');
         const newTasks = [];
         const currentLagging = activeQuarter.lagging;
@@ -435,16 +434,11 @@
           }
 
           const note = cols[3] ? cols[3].trim() : '';
-
-          newTasks.push({
-            id: `t_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-            name, goalId, targetDays, note, days: Array(7).fill(false)
-          });
+          newTasks.push({ id: `t_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`, name, goalId, targetDays, note, days: Array(7).fill(false) });
         });
 
         if (newTasks.length > 0) handleTaskAction(tasks => [...tasks, ...newTasks]);
-        setShowPasteModal(false);
-        setPasteText('');
+        setShowPasteModal(false); setPasteText('');
       };
 
       const updateLaggingCurrent = (goalId, newCurrent) => {
@@ -457,9 +451,7 @@
         const currentGaps = newLagging.reduce((acc, g) => ({...acc, [g.id]: Math.max(0, 100 - calculateProgress(g))}), {});
         const newHistory = { ...currentQData.history, [currentWeek]: currentGaps };
         
-        currentQData.lagging = newLagging;
-        currentQData.history = newHistory;
-        newData[currentQuarter] = currentQData;
+        currentQData.lagging = newLagging; currentQData.history = newHistory; newData[currentQuarter] = currentQData;
         saveToCloud(newData);
       };
 
@@ -474,9 +466,7 @@
           if (isNaN(finalValue)) finalValue = 0;
         }
 
-        currentQData.lagging = currentQData.lagging.map(g => 
-          g.id === goalId ? { ...g, [field]: finalValue } : g
-        );
+        currentQData.lagging = currentQData.lagging.map(g => g.id === goalId ? { ...g, [field]: finalValue } : g);
         
         if (field === 'start' || field === 'target') {
            const currentGaps = currentQData.lagging.reduce((acc, g) => ({...acc, [g.id]: Math.max(0, 100 - calculateProgress(g))}), {});
@@ -493,8 +483,7 @@
         downloadAnchorNode.setAttribute("href", dataStr);
         downloadAnchorNode.setAttribute("download", "12weekyear_backup.json");
         document.body.appendChild(downloadAnchorNode);
-        downloadAnchorNode.click();
-        downloadAnchorNode.remove();
+        downloadAnchorNode.click(); downloadAnchorNode.remove();
       };
 
       const importData = (e) => {
@@ -504,11 +493,9 @@
         reader.onload = (event) => {
           try {
             const imported = JSON.parse(event.target.result);
-            if (imported.lagging && imported.weeks) saveToCloud(imported);
+            if (imported.lagging && imported.weeks) saveToCloud(migrateData(imported));
             else alert('檔案格式不正確');
-          } catch (e) {
-            alert('解析 JSON 失敗');
-          }
+          } catch (e) { alert('解析 JSON 失敗'); }
         };
         reader.readAsText(file);
       };
@@ -528,10 +515,7 @@
       for (let w = 1; w <= currentWeek; w++) {
         const wData = activeQuarter.weeks[w];
         if (wData && wData.isEdited) {
-          wData.tasks.forEach(t => {
-            cumScoreSum += getTaskCompletionRate(t);
-            cumTaskCount++;
-          });
+          wData.tasks.forEach(t => { cumScoreSum += getTaskCompletionRate(t); cumTaskCount++; });
         }
       }
       const cumulativeLeadingScore = cumTaskCount === 0 ? 0 : Math.round(cumScoreSum / cumTaskCount);
@@ -551,7 +535,10 @@
                 <div className="w-8 h-8 bg-zinc-900 rounded-lg flex items-center justify-center shadow-sm shrink-0">
                   <Target className="w-5 h-5 text-white" />
                 </div>
-                <h1 className="text-xl font-semibold tracking-tight hidden sm:block">12 Week Year</h1>
+                <h1 className="text-xl font-semibold tracking-tight hidden sm:flex items-center">
+                  12 Week Year
+                  <span className="ml-3 text-sm font-normal text-zinc-400 bg-zinc-100 px-2 py-0.5 rounded">今日 {todayStr}</span>
+                </h1>
               </div>
               
               <div className="flex bg-zinc-100 p-1 rounded-lg">
@@ -571,6 +558,8 @@
             </div>
             
             <div className="flex items-center space-x-4 text-xs sm:text-sm">
+              <span className="sm:hidden text-xs font-normal text-zinc-400 bg-zinc-100 px-2 py-1 rounded">{todayStr}</span>
+              
               {auth && user && !user.isAnonymous ? (
                 <div className="hidden sm:flex items-center space-x-3">
                   <div className="flex items-center text-emerald-500 font-medium px-2 py-1 bg-emerald-50 rounded-full">
@@ -584,7 +573,8 @@
               ) : (
                 <button onClick={() => setShowAuthModal(true)} className="flex items-center space-x-1.5 text-blue-500 hover:text-blue-600 transition-colors font-medium px-3 py-1.5 bg-blue-50 rounded-full">
                   <UserCircle className="w-4 h-4" />
-                  <span>登入/註冊以同步</span>
+                  <span className="hidden sm:inline">登入/註冊以同步</span>
+                  <span className="sm:hidden">同步</span>
                 </button>
               )}
               <button onClick={exportData} className="hidden sm:flex items-center space-x-1.5 text-zinc-500 hover:text-zinc-900 transition-colors">
@@ -601,6 +591,93 @@
 
           <main className="max-w-6xl mx-auto px-4 sm:px-8 space-y-8 sm:space-y-12">
             
+            {/* === 🌟 新增：願景板與翻頁時鐘 === */}
+            <section className="flex flex-col md:flex-row gap-4 sm:gap-6">
+              
+              {/* 左側：願景清單 (背景改為淡綠色) */}
+              <div className="bg-green-50/40 border border-green-200/60 rounded-2xl p-5 sm:p-6 flex-1 flex flex-col shadow-sm relative group overflow-hidden">
+                <div className="flex items-center mb-4 border-b border-green-200/50 pb-3">
+                   <input 
+                     type="text" 
+                     value={data.visionTitle} 
+                     onChange={updateVisionTitle} 
+                     className="font-bold text-blue-600 text-lg bg-transparent focus:outline-none w-full placeholder:text-zinc-400"
+                     placeholder="願景"
+                   />
+                   <button onClick={addVisionItem} className="text-zinc-400 hover:text-zinc-800 transition-colors shrink-0 opacity-0 group-hover:opacity-100 p-1 bg-white rounded shadow-sm border border-zinc-200">
+                     <Plus className="w-4 h-4" />
+                   </button>
+                </div>
+                <ul className="space-y-3 flex-1">
+                  {data.visions.map((v, i) => (
+                    <li key={i} className="flex items-start group/item">
+                      <span className="text-zinc-800 mr-2 mt-1 text-[10px]">●</span>
+                      <textarea 
+                        value={v}
+                        onChange={(e) => updateVisionItem(i, e.target.value)}
+                        className="text-zinc-800 text-sm bg-transparent focus:outline-none w-full resize-none overflow-hidden"
+                        placeholder="點此輸入願景內容..."
+                        rows={1}
+                        ref={(el) => {
+                          if (el) {
+                            el.style.height = 'auto';
+                            el.style.height = el.scrollHeight + 'px';
+                          }
+                        }}
+                        onInput={(e) => {
+                          e.target.style.height = 'auto';
+                          e.target.style.height = e.target.scrollHeight + 'px';
+                        }}
+                        style={{ minHeight: '24px' }}
+                      />
+                      <button onClick={() => removeVisionItem(i)} className="text-zinc-300 hover:text-rose-500 transition-colors shrink-0 opacity-0 group-hover/item:opacity-100 ml-2 mt-0.5">
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </li>
+                  ))}
+                  {data.visions.length === 0 && (
+                    <li className="text-sm text-zinc-400">尚未設定願景，點擊右上方「+」新增。</li>
+                  )}
+                </ul>
+              </div>
+
+              {/* 右側：翻頁時鐘倒數 */}
+              <div className="bg-white border border-zinc-200 rounded-2xl p-4 sm:p-5 shrink-0 flex flex-col items-center justify-center shadow-sm relative group w-full md:w-auto min-w-[200px]">
+                 <div className="flex items-center justify-center space-x-1 text-zinc-600 font-bold mb-3 z-10 text-sm whitespace-nowrap">
+                   <input 
+                     type="date" 
+                     value={data.targetDate}
+                     onChange={updateTargetDate}
+                     className="bg-transparent focus:outline-none text-center cursor-pointer hover:bg-zinc-50 px-1 py-1 rounded transition-colors [color-scheme:light]"
+                     title="點擊修改倒數目標日"
+                   />
+                   <span>倒數</span>
+                 </div>
+                 
+                 <div className="flex items-center space-x-3">
+                   {/* Weeks */}
+                   <div className="flex flex-col items-center">
+                     <div className="bg-[#1c1c1e] text-white text-3xl sm:text-4xl font-bold rounded-lg w-12 h-16 sm:w-16 sm:h-20 flex items-center justify-center relative overflow-hidden shadow-lg border border-black/20">
+                       <div className="flip-clock-mask"></div>
+                       <span className="relative z-10 font-mono tracking-tighter">{remainingWeeks.toString().padStart(2, '0')}</span>
+                     </div>
+                     <span className="text-[10px] text-zinc-500 mt-2 font-medium uppercase tracking-wider">Weeks</span>
+                   </div>
+                   
+                   {/* Days */}
+                   <div className="flex flex-col items-center">
+                     <div className="bg-[#1c1c1e] text-white text-3xl sm:text-4xl font-bold rounded-lg w-12 h-16 sm:w-16 sm:h-20 flex items-center justify-center relative overflow-hidden shadow-lg border border-black/20">
+                       <div className="flip-clock-mask"></div>
+                       <span className="relative z-10 font-mono tracking-tighter">{remainingDays.toString().padStart(2, '0')}</span>
+                     </div>
+                     <span className="text-[10px] text-zinc-500 mt-2 font-medium uppercase tracking-wider">Days</span>
+                   </div>
+                 </div>
+              </div>
+
+            </section>
+            
+            {/* 落後指標 */}
             <section>
               <h2 className="text-sm font-semibold text-zinc-400 mb-4 tracking-wider uppercase flex items-center">
                 Lagging Indicators ({currentQuarter}) <span className="ml-2 w-full h-px bg-zinc-200"></span>
@@ -715,6 +792,7 @@
               </div>
             </section>
 
+            {/* 視覺化圖表與當週領先指標 */}
             <section className="grid grid-cols-1 md:grid-cols-3 gap-4 sm:gap-6">
               <div className="bg-white p-5 sm:p-6 rounded-2xl border border-zinc-200 shadow-[0_2px_10px_-4px_rgba(0,0,0,0.05)] flex flex-col justify-between">
                 <div className="flex items-center justify-between mb-4">
@@ -816,6 +894,7 @@
               </div>
             </section>
 
+            {/* 週次切換與任務列表 */}
             <section>
               <div className="flex items-center justify-between mb-4 sm:mb-6">
                 <h2 className="text-sm font-semibold text-zinc-400 tracking-wider uppercase">Weekly Execution</h2>
@@ -842,12 +921,13 @@
               </div>
 
               <div className="bg-white sm:border sm:border-zinc-200 rounded-2xl sm:shadow-[0_2px_10px_-4px_rgba(0,0,0,0.05)] overflow-hidden">
-                <div className="px-4 sm:px-6 py-4 border-b border-zinc-100 bg-zinc-50/50 flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-0">
+                {/* 標題列：如果是繼承狀態，背景改為淡黃色 */}
+                <div className={`px-4 sm:px-6 py-4 border-b border-zinc-100 ${activeWeekData.isInherited ? 'bg-yellow-50/50' : 'bg-zinc-50/50'} flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-0 transition-colors duration-300`}>
                   <div className="flex items-center space-x-3">
                     <span className="font-medium text-zinc-800">Week {currentWeek} 任務</span>
                     {activeWeekData.isInherited && (
-                      <span className="text-[10px] bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full border border-amber-200">
-                        繼承自上週
+                      <span className="text-[10px] bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded-full border border-yellow-200">
+                        繼承自上週 (點擊編輯即獨立)
                       </span>
                     )}
                   </div>
@@ -869,14 +949,14 @@
                   <table className="w-full text-left border-collapse min-w-[1050px]">
                     <thead>
                       <tr>
-                        <th className="px-6 py-3 text-xs font-medium text-zinc-400 border-b border-zinc-100 w-[18%]">行動項目</th>
+                        <th className="px-6 py-3 text-xs font-medium text-zinc-400 border-b border-zinc-100 w-[22%]">行動項目</th>
                         <th className="px-3 py-3 text-xs font-medium text-zinc-400 border-b border-zinc-100 w-[12%]">關聯目標</th>
                         <th className="px-3 py-3 text-xs font-medium text-zinc-400 border-b border-zinc-100 text-center w-[8%]">每週目標</th>
                         {DAYS.map(day => (
                           <th key={day} className="px-2 py-3 text-xs font-medium text-zinc-400 border-b border-zinc-100 text-center w-[5%]">{day}</th>
                         ))}
                         <th className="px-3 py-3 text-xs font-medium text-zinc-400 border-b border-zinc-100 text-center w-[7%]">達成率</th>
-                        <th className="px-3 py-3 text-xs font-medium text-zinc-400 border-b border-zinc-100 w-[15%]">備註</th>
+                        <th className="px-3 py-3 text-xs font-medium text-zinc-400 border-b border-zinc-100 w-[11%]">備註</th>
                         <th className="px-3 py-3 text-xs font-medium text-zinc-400 border-b border-zinc-100 text-center w-[5%]">操作</th>
                       </tr>
                     </thead>
