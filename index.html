@@ -82,6 +82,7 @@
     const Plus = (p) => <Icon {...p}><path d="M5 12h14"/><path d="M12 5v14"/></Icon>;
     const Trash2 = (p) => <Icon {...p}><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/></Icon>;
     const TrendingDown = (p) => <Icon {...p}><polyline points="22 17 13.5 8.5 8.5 13.5 2 7"/><polyline points="16 17 22 17 22 11"/></Icon>;
+    const TrendingUp = (p) => <Icon {...p}><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/></Icon>;
     const Activity = (p) => <Icon {...p}><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></Icon>;
     const ListTodo = (p) => <Icon {...p}><rect x="3" y="5" width="6" height="6" rx="1"/><path d="m3 17 2 2 4-4"/><path d="M13 6h8"/><path d="M13 12h8"/><path d="M13 18h8"/></Icon>;
     const FileText = (p) => <Icon {...p}><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/></Icon>;
@@ -981,7 +982,7 @@
 
                 {/* 視覺化圖表與當週領先指標 */}
                 <section className="grid grid-cols-1 md:grid-cols-3 gap-4 sm:gap-6">
-                  <div className="bg-white p-5 sm:p-6 rounded-2xl border border-zinc-200 shadow-[0_2px_10px_-4px_rgba(0,0,0,0.05)] flex flex-col justify-between">
+                  <div className="bg-white p-5 sm:p-6 rounded-2xl border border-zinc-200 shadow-[0_2px_10px_-4px_rgba(0,0,0,0.05)] col-span-1 flex flex-col justify-between">
                     <div className="flex items-center justify-between mb-4">
                       <div>
                         <h3 className="text-zinc-500 text-sm font-medium mb-1">本週行動達成率</h3>
@@ -1011,38 +1012,68 @@
                   </div>
 
                   <div className="bg-white p-5 sm:p-6 rounded-2xl border border-zinc-200 shadow-[0_2px_10px_-4px_rgba(0,0,0,0.05)] col-span-1 flex flex-col">
-                    <h3 className="text-zinc-500 text-sm font-medium mb-4 flex items-center">
-                      <TrendingDown className="w-4 h-4 mr-1.5" /> 落後指標剩餘差距
+                    <h3 className="text-zinc-500 text-sm font-medium mb-2 flex items-center">
+                      <TrendingUp className="w-4 h-4 mr-1.5" /> 落後指標達成率趨勢
                     </h3>
-                    <div className="flex-1 relative w-full mt-2 h-24 sm:h-auto">
-                      <svg viewBox="0 0 120 40" className="w-full h-full overflow-visible" preserveAspectRatio="none">
-                        <line x1="0" y1="0" x2="120" y2="40" stroke="#f4f4f5" strokeWidth="1" strokeDasharray="2 2" />
-                        {[1,3,6,9,12].map(w => (
-                          <text key={`label-${w}`} x={(w-1)*10.9} y="50" fontSize="4" fill="#a1a1aa" textAnchor="middle">W{w}</text>
-                        ))}
+                    <div className="flex-1 flex w-full mt-2 min-h-[120px]">
+                      {/* Y軸標籤 */}
+                      <div className="flex flex-col justify-between text-[10px] text-zinc-400 pr-2 h-[calc(100%-20px)] relative">
+                        <span>100%</span>
+                        <span>75%</span>
+                        <span>50%</span>
+                        <span>25%</span>
+                        <span className="invisible">0%</span>
+                      </div>
+                      
+                      <div className="flex-1 relative">
+                        {/* 背景水平格線 */}
+                        <div className="absolute inset-0 h-[calc(100%-20px)] flex flex-col justify-between z-0">
+                          <div className="border-t border-zinc-100 w-full"></div>
+                          <div className="border-t border-zinc-100 w-full"></div>
+                          <div className="border-t border-zinc-100 w-full"></div>
+                          <div className="border-t border-zinc-100 w-full"></div>
+                          <div className="border-t border-zinc-200 w-full"></div>
+                        </div>
                         
-                        {activeQuarter.lagging.map((goal, index) => {
-                          const hexColor = goalColors[index % 3].hex;
-                          const points = Array.from({length: targetW}).map((_, i) => {
-                            const weekNum = i + 1;
-                            const gap = getGoalGapAtWeek(goal.id, weekNum, activeQuarter.history);
-                            const x = i * (120 / 11);
-                            const y = (gap / 100) * 40;
-                            return `${x},${y}`;
-                          }).join(' ');
+                        {/* SVG 繪製線條與資料點 */}
+                        <svg viewBox="0 0 100 100" className="absolute top-0 left-0 w-full h-[calc(100%-20px)] overflow-visible z-10" preserveAspectRatio="none">
+                          <line x1="0" y1="100" x2="100" y2="0" stroke="#f4f4f5" strokeWidth="1" strokeDasharray="4 4" />
+                          
+                          {activeQuarter.lagging.map((goal, index) => {
+                            const hexColor = goalColors[index % 3].hex;
+                            
+                            const points = Array.from({length: targetW + 1}).map((_, i) => {
+                              const weekNum = i; // 0 到 targetW
+                              const gap = weekNum === 0 ? 100 : getGoalGapAtWeek(goal.id, weekNum, activeQuarter.history);
+                              const progress = Math.max(0, Math.min(100, 100 - gap));
+                              const x = i * (100 / 12);
+                              const y = 100 - progress; // 100% 置於頂部(y=0)
+                              return `${x},${y}`;
+                            }).join(' ');
 
-                          const currentGap = getGoalGapAtWeek(goal.id, targetW, activeQuarter.history);
-                          const circleX = (targetW - 1) * (120 / 11);
-                          const circleY = (currentGap / 100) * 40;
+                            const currentGap = targetW === 0 ? 100 : getGoalGapAtWeek(goal.id, targetW, activeQuarter.history);
+                            const currentProgress = Math.max(0, Math.min(100, 100 - currentGap));
+                            const circleX = targetW * (100 / 12);
+                            const circleY = 100 - currentProgress;
 
-                          return (
-                            <g key={`line-${goal.id}`}>
-                              <polyline fill="none" stroke={hexColor} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" points={points} />
-                              <circle cx={circleX} cy={circleY} r="2" fill={hexColor} />
-                            </g>
-                          );
-                        })}
-                      </svg>
+                            return (
+                              <g key={`line-${goal.id}`}>
+                                <polyline fill="none" stroke={hexColor} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" points={points} />
+                                <circle cx={circleX} cy={circleY} r="3" fill={hexColor} />
+                              </g>
+                            );
+                          })}
+                        </svg>
+                        
+                        {/* X軸標籤與共用原點 */}
+                        <div className="absolute bottom-0 left-0 w-full h-5 text-[10px] text-zinc-400">
+                          <span className="absolute bottom-0 transform -translate-x-full pr-2 leading-none text-right font-medium">0</span>
+                          <span className="absolute bottom-0 transform -translate-x-1/2 leading-none" style={{ left: '25%' }}>W3</span>
+                          <span className="absolute bottom-0 transform -translate-x-1/2 leading-none" style={{ left: '50%' }}>W6</span>
+                          <span className="absolute bottom-0 transform -translate-x-1/2 leading-none" style={{ left: '75%' }}>W9</span>
+                          <span className="absolute bottom-0 right-0 leading-none">W12</span>
+                        </div>
+                      </div>
                     </div>
                   </div>
 
@@ -1153,11 +1184,11 @@
                         </div>
 
                         {/* === 桌面版：傳統表格 === */}
-                        <div className="hidden md:block overflow-x-auto">
+                        <div className="hidden md:block overflow-x-auto relative">
                           <table className="w-full text-left border-collapse min-w-[1050px]">
                             <thead>
                               <tr>
-                                <th className="px-6 py-3 text-xs font-medium text-zinc-400 border-b border-zinc-100 w-[22%]">行動項目</th>
+                                <th className="px-6 py-3 text-xs font-medium text-zinc-400 border-b border-zinc-100 w-[22%] sticky left-0 bg-white z-20 shadow-[1px_0_0_0_#f4f4f5]">行動項目</th>
                                 <th className="px-3 py-3 text-xs font-medium text-zinc-400 border-b border-zinc-100 w-[12%]">關聯目標</th>
                                 <th className="px-3 py-3 text-xs font-medium text-zinc-400 border-b border-zinc-100 text-center w-[8%]">每週目標</th>
                                 {DAYS.map(day => (
@@ -1176,7 +1207,7 @@
                                   const taskCompletion = getTaskCompletionRate(task);
                                   return (
                                     <tr key={task.id} className="group hover:bg-zinc-50/50 transition-colors">
-                                      <td className="px-6 py-4 text-sm font-medium text-zinc-700">
+                                      <td className="px-6 py-4 text-sm font-medium text-zinc-700 sticky left-0 bg-white group-hover:bg-zinc-50 transition-colors z-10 shadow-[1px_0_0_0_#f4f4f5]">
                                         <input type="text" value={task.name} onChange={(e) => updateTaskName(task.id, e.target.value)} placeholder="任務名稱" className="bg-transparent border-b border-transparent hover:border-zinc-300 focus:border-zinc-900 focus:outline-none transition-colors w-full py-1" />
                                       </td>
                                       <td className="px-3 py-4 text-sm">
