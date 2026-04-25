@@ -1,0 +1,1109 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>12 Week Year Dashboard</title>
+  
+  <!-- 引入 Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  
+  <!-- 引入 React 與 ReactDOM -->
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  
+  <!-- 引入 Babel 以在瀏覽器中編譯 JSX -->
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+  <style>
+    /* 隱藏滾動條的輔助樣式 */
+    .scrollbar-hide::-webkit-scrollbar { display: none; }
+    .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <!-- 使用 type="text/babel" data-type="module" 支援 ES Module Import -->
+  <script type="text/babel" data-type="module">
+    // --- 1. Firebase 雲端同步模組 (ESM CDN) ---
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+    import { getAuth, signInWithCustomToken, signInAnonymously, onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
+    import { getFirestore, doc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+
+    // 💡 若要啟用雲端同步，請將您的 Firebase 設定貼入此處
+    const firebaseConfig = {apiKey: "AIzaSyC3wmLa5LzK1gTdguArIbBjuIfMWmlrz5Q",
+  authDomain: "the12weekyear.firebaseapp.com",
+  projectId: "the12weekyear",
+  storageBucket: "the12weekyear.firebasestorage.app",
+  messagingSenderId: "937446028538",
+  appId: "1:937446028538:web:2401bef679c800a6c10543",
+  measurementId: "G-Z3NZK68VZJ"
+    };
+
+    let app, auth, db, appId = 'github-pages-12wy';
+    if (firebaseConfig && firebaseConfig.apiKey) {
+      app = initializeApp(firebaseConfig);
+      auth = getAuth(app);
+      db = getFirestore(app);
+    }
+
+    // --- 2. React Hooks ---
+    const { useState, useEffect, useMemo } = React;
+
+    // --- 3. 內聯 Lucide Icons ---
+    const Icon = ({ d, children, className = "w-4 h-4", ...props }) => (
+      <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className} {...props}>
+        {d && <path d={d} />}
+        {children}
+      </svg>
+    );
+    const Target = (p) => <Icon {...p}><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></Icon>;
+    const Download = (p) => <Icon {...p}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/></Icon>;
+    const Upload = (p) => <Icon {...p}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" x2="12" y1="3" y2="15"/></Icon>;
+    const Cloud = (p) => <Icon {...p}><path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"/></Icon>;
+    const LogOut = (p) => <Icon {...p}><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" x2="9" y1="12" y2="12"/></Icon>;
+    const UserCircle = (p) => <Icon {...p}><circle cx="12" cy="12" r="10"/><circle cx="12" cy="10" r="3"/><path d="M7 20.662V19a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v1.662"/></Icon>;
+    const CheckCircle2 = (p) => <Icon {...p}><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></Icon>;
+    const Circle = (p) => <Icon {...p}><circle cx="12" cy="12" r="10"/></Icon>;
+    const Plus = (p) => <Icon {...p}><path d="M5 12h14"/><path d="M12 5v14"/></Icon>;
+    const Trash2 = (p) => <Icon {...p}><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/></Icon>;
+    const TrendingDown = (p) => <Icon {...p}><polyline points="22 17 13.5 8.5 8.5 13.5 2 7"/><polyline points="16 17 22 17 22 11"/></Icon>;
+    const Activity = (p) => <Icon {...p}><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></Icon>;
+    const ListTodo = (p) => <Icon {...p}><rect x="3" y="5" width="6" height="6" rx="1"/><path d="m3 17 2 2 4-4"/><path d="M13 6h8"/><path d="M13 12h8"/><path d="M13 18h8"/></Icon>;
+    const FileText = (p) => <Icon {...p}><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/></Icon>;
+    const X = (p) => <Icon {...p}><path d="M18 6 6 18"/><path d="m6 6 12 12"/></Icon>;
+
+    // --- 4. 建立空白週期的輔助函數 & 初始資料 ---
+    const createEmptyQuarter = () => ({
+      lagging: [
+        { id: 'g1', name: '主要目標一', start: 0, target: 100, current: 0, unit: '單位', reverse: false },
+        { id: 'g2', name: '主要目標二', start: 0, target: 100, current: 0, unit: '單位', reverse: false },
+        { id: 'g3', name: '主要目標三', start: 0, target: 100, current: 0, unit: '單位', reverse: false }
+      ],
+      history: {},
+      weeks: {}
+    });
+
+    const INITIAL_DATA = {
+      Q1: {
+        lagging: [
+          { id: 'g1', name: '減重目標', start: 80, target: 75, current: 79, unit: 'kg', reverse: true },
+          { id: 'g2', name: '新台幣收入', start: 0, target: 100000, current: 25000, unit: '元', reverse: false },
+          { id: 'g3', name: '多益測驗', start: 600, target: 900, current: 720, unit: '分', reverse: false }
+        ],
+        history: { 1: { g1: 85, g2: 90, g3: 80 }, 2: { g1: 75, g2: 80, g3: 70 } },
+        weeks: {
+          1: {
+            isEdited: true,
+            tasks: [
+              { id: 't1', name: '晨跑 3km', goalId: 'g1', targetDays: 3, note: '下雨改室內', days: [true, false, true, false, true, false, false] },
+              { id: 't2', name: '不吃零食', goalId: 'g1', targetDays: 5, note: '', days: [true, true, true, false, true, true, false] },
+              { id: 't3', name: '單字 50 個', goalId: 'g3', targetDays: 7, note: '', days: [true, true, true, true, true, false, false] },
+              { id: 't4', name: '發送 5 封開發信', goalId: 'g2', targetDays: 4, note: '名單準備', days: [false, true, true, true, false, false, false] }
+            ]
+          },
+          2: {
+            isEdited: true,
+            tasks: [
+              { id: 't1', name: '晨跑 3km', goalId: 'g1', targetDays: 3, note: '', days: [true, true, true, true, false, false, false] },
+              { id: 't2', name: '不吃零食', goalId: 'g1', targetDays: 5, note: '', days: [true, true, true, true, true, true, true] },
+              { id: 't3', name: '單字 50 個', goalId: 'g3', targetDays: 7, note: '', days: [true, true, true, true, true, true, true] },
+              { id: 't4', name: '發送 10 封開發信', goalId: 'g2', targetDays: 4, note: '', days: [false, false, true, true, true, true, false] }
+            ]
+          }
+        }
+      },
+      Q2: createEmptyQuarter(),
+      Q3: createEmptyQuarter(),
+      Q4: createEmptyQuarter()
+    };
+
+    const QUARTERS = ['Q1', 'Q2', 'Q3', 'Q4'];
+    const DAYS = ['週一', '週二', '週三', '週四', '週五', '週六', '週日'];
+
+    // --- 5. 邏輯與運算輔助函數 ---
+    const calculateProgress = (goal) => {
+      if (goal.reverse) {
+        if (goal.current <= goal.target) return 100;
+        if (goal.current >= goal.start) return 0;
+        return ((goal.start - goal.current) / (goal.start - goal.target)) * 100;
+      } else {
+        if (goal.current >= goal.target) return 100;
+        if (goal.current <= goal.start) return 0;
+        return ((goal.current - goal.start) / (goal.target - goal.start)) * 100;
+      }
+    };
+
+    const getThresholdColorText = (score) => {
+      if (score >= 76) return 'text-emerald-500';
+      if (score >= 51) return 'text-amber-500';
+      return 'text-zinc-800'; 
+    };
+
+    const getThresholdColorBg = (score) => {
+      if (score >= 76) return 'bg-emerald-500';
+      if (score >= 51) return 'bg-amber-500';
+      return 'bg-zinc-800'; 
+    };
+
+    const getTaskCompletionRate = (task) => {
+      const checkedCount = task.days.filter(Boolean).length;
+      const target = task.targetDays || 7; 
+      return Math.min(100, Math.round((checkedCount / target) * 100));
+    };
+
+    const getGoalGapAtWeek = (goalId, targetWeek, historyObj) => {
+      for (let w = targetWeek; w >= 1; w--) {
+        const h = historyObj[w];
+        if (h !== undefined) {
+          if (typeof h === 'number') return h; 
+          if (h[goalId] !== undefined) return h[goalId];
+        }
+      }
+      return 100;
+    };
+
+    // --- 6. 應用主元件 ---
+    function App() {
+      const [user, setUser] = useState(null);
+      const [data, setData] = useState(null);
+      const [currentQuarter, setCurrentQuarter] = useState('Q1');
+      const [currentWeek, setCurrentWeek] = useState(1);
+      const [isSyncing, setIsSyncing] = useState(true);
+      
+      // 帳號登入系統狀態
+      const [showAuthModal, setShowAuthModal] = useState(false);
+      const [authMode, setAuthMode] = useState('login'); 
+      const [authEmail, setAuthEmail] = useState('');
+      const [authPassword, setAuthPassword] = useState('');
+      const [authLoading, setAuthLoading] = useState(false);
+      const [authError, setAuthError] = useState('');
+
+      // 批次匯入狀態
+      const [showPasteModal, setShowPasteModal] = useState(false);
+      const [pasteText, setPasteText] = useState('');
+
+      // 1. 初始化 Auth
+      useEffect(() => {
+        const loadLocalData = () => {
+          const saved = localStorage.getItem('12wy_data');
+          if (saved) {
+             try {
+                let parsed = JSON.parse(saved);
+                if (parsed.lagging && !parsed.Q1) {
+                  parsed = { Q1: parsed, Q2: createEmptyQuarter(), Q3: createEmptyQuarter(), Q4: createEmptyQuarter() };
+                } else {
+                  parsed = {
+                    Q1: parsed.Q1 || createEmptyQuarter(), Q2: parsed.Q2 || createEmptyQuarter(),
+                    Q3: parsed.Q3 || createEmptyQuarter(), Q4: parsed.Q4 || createEmptyQuarter()
+                  };
+                }
+                setData(parsed);
+             } catch (e) { setData(INITIAL_DATA); }
+          } else {
+             setData(INITIAL_DATA);
+          }
+        };
+
+        if (!auth) {
+          loadLocalData();
+          setIsSyncing(false);
+          return;
+        }
+
+        const initAuth = async () => {
+          try {
+            await signInAnonymously(auth);
+          } catch (error) {
+            console.error("Auth error:", error);
+            // 處理 Firebase 未啟用匿名登入或尚未設定的情況，優雅降級到本地儲存
+            loadLocalData();
+            setIsSyncing(false);
+          }
+        };
+        
+        initAuth();
+        const unsubscribe = onAuthStateChanged(auth, (u) => {
+          setUser(u);
+          if (!u) {
+            loadLocalData();
+            setIsSyncing(false);
+          }
+        });
+        return () => unsubscribe();
+      }, []);
+
+      // 2. 獲取遠端資料庫
+      useEffect(() => {
+        if (!auth || !user) return;
+
+        const docRef = doc(db, 'artifacts', appId, 'users', user.uid, 'data', 'dashboard');
+        const unsubscribe = onSnapshot(docRef, (docSnap) => {
+          if (docSnap.exists() && !docSnap.metadata.hasPendingWrites) {
+            let parsed = docSnap.data().payload;
+            if (parsed.lagging && !parsed.Q1) {
+              parsed = { Q1: parsed, Q2: createEmptyQuarter(), Q3: createEmptyQuarter(), Q4: createEmptyQuarter() };
+            } else {
+              parsed = {
+                Q1: parsed.Q1 || createEmptyQuarter(), Q2: parsed.Q2 || createEmptyQuarter(),
+                Q3: parsed.Q3 || createEmptyQuarter(), Q4: parsed.Q4 || createEmptyQuarter()
+              };
+            }
+            setData(parsed);
+          } else if (!docSnap.exists()) {
+            const saved = localStorage.getItem('12wy_data');
+            const initData = saved ? JSON.parse(saved) : INITIAL_DATA;
+            setData(initData);
+            setDoc(docRef, { payload: initData }, { merge: true });
+          }
+          setIsSyncing(false);
+        }, (err) => {
+          console.error("Firestore error:", err);
+          setIsSyncing(false);
+        });
+
+        return () => unsubscribe();
+      }, [user]);
+
+      // 3. 雲端與本地同步保存函數
+      const saveToCloud = (newData) => {
+        setData(newData);
+        localStorage.setItem('12wy_data', JSON.stringify(newData)); // 雙重保險
+        if (auth && user) {
+          const docRef = doc(db, 'artifacts', appId, 'users', user.uid, 'data', 'dashboard');
+          setDoc(docRef, { payload: newData }, { merge: true });
+        }
+      };
+
+      // 4. 處理帳號登入與註冊
+      const handleAuthSubmit = async (e) => {
+        e.preventDefault();
+        setAuthError('');
+        setAuthLoading(true);
+        try {
+          if (authMode === 'register') {
+            await createUserWithEmailAndPassword(auth, authEmail, authPassword);
+            if (data && auth.currentUser) {
+              const docRef = doc(db, 'artifacts', appId, 'users', auth.currentUser.uid, 'data', 'dashboard');
+              await setDoc(docRef, { payload: data }, { merge: true });
+            }
+          } else {
+            await signInWithEmailAndPassword(auth, authEmail, authPassword);
+          }
+          setShowAuthModal(false);
+          setAuthEmail('');
+          setAuthPassword('');
+        } catch (err) {
+          if (err.code === 'auth/configuration-not-found' || err.code === 'auth/operation-not-allowed') {
+            setAuthError('Firebase 尚未啟用「電子郵件/密碼」驗證功能，請至控制台設定');
+          } else {
+            setAuthError(err.code === 'auth/email-already-in-use' ? '此信箱已註冊' : 
+                         err.code === 'auth/wrong-password' || err.code === 'auth/invalid-credential' ? '帳號或密碼錯誤' : 
+                         err.code === 'auth/user-not-found' ? '找不到此帳號' : '發生錯誤，請檢查信箱與密碼格式');
+          }
+        } finally {
+          setAuthLoading(false);
+        }
+      };
+
+      const handleLogout = async () => {
+        await signOut(auth);
+        try {
+          await signInAnonymously(auth);
+        } catch (error) {
+          console.error("Auth error on logout:", error);
+        }
+      };
+
+      const handleQuarterChange = (q) => {
+        setCurrentQuarter(q);
+        setCurrentWeek(1);
+      };
+
+      const activeQuarter = data ? data[currentQuarter] : null;
+
+      const activeWeekData = useMemo(() => {
+        if (!activeQuarter) return { tasks: [], isInherited: false };
+
+        if (activeQuarter.weeks[currentWeek] && activeQuarter.weeks[currentWeek].isEdited) {
+          return { ...activeQuarter.weeks[currentWeek], isInherited: false };
+        }
+
+        let latestWeek = null;
+        for (let w = currentWeek - 1; w >= 1; w--) {
+          if (activeQuarter.weeks[w] && activeQuarter.weeks[w].isEdited) {
+            latestWeek = w;
+            break;
+          }
+        }
+
+        if (latestWeek) {
+          const inheritedTasks = activeQuarter.weeks[latestWeek].tasks.map(t => ({
+            ...t, days: Array(7).fill(false)
+          }));
+          return { tasks: inheritedTasks, isInherited: true };
+        }
+
+        return { tasks: [], isInherited: false };
+      }, [activeQuarter, currentWeek]);
+
+      const handleTaskAction = (actionCallback) => {
+        if(!data) return;
+        const newData = { ...data };
+        const currentQData = { ...newData[currentQuarter] };
+        let targetWeek = currentQData.weeks[currentWeek];
+
+        if (!targetWeek || !targetWeek.isEdited) {
+          const baseTasks = activeWeekData.tasks.map(t => ({ ...t, days: [...t.days] }));
+          targetWeek = { isEdited: true, tasks: baseTasks };
+        } else {
+          targetWeek = { ...targetWeek, tasks: targetWeek.tasks.map(t => ({ ...t, days: [...t.days] })) };
+        }
+
+        targetWeek.tasks = actionCallback(targetWeek.tasks);
+        currentQData.weeks = { ...currentQData.weeks, [currentWeek]: targetWeek };
+        newData[currentQuarter] = currentQData;
+        saveToCloud(newData);
+      };
+
+      const toggleDay = (taskId, dayIndex) => {
+        handleTaskAction(tasks => tasks.map(t => 
+          t.id === taskId ? { ...t, days: t.days.map((d, i) => i === dayIndex ? !d : d) } : t
+        ));
+      };
+
+      const updateTaskName = (taskId, newName) => {
+        handleTaskAction(tasks => tasks.map(t => t.id === taskId ? { ...t, name: newName } : t));
+      };
+
+      const updateTaskGoal = (taskId, newGoalId) => {
+        handleTaskAction(tasks => tasks.map(t => t.id === taskId ? { ...t, goalId: newGoalId } : t));
+      };
+
+      const updateTaskTargetDays = (taskId, target) => {
+        let val = target;
+        if (val !== '') {
+          val = parseInt(target, 10);
+          if (isNaN(val)) val = '';
+          else if (val > 7) val = 7;
+          else if (val < 1) val = 1;
+        }
+        handleTaskAction(tasks => tasks.map(t => t.id === taskId ? { ...t, targetDays: val } : t));
+      };
+
+      const updateTaskNote = (taskId, noteText) => {
+        handleTaskAction(tasks => tasks.map(t => t.id === taskId ? { ...t, note: noteText } : t));
+      };
+
+      const addTask = () => {
+        handleTaskAction(tasks => [
+          ...tasks, 
+          { id: `t_${Date.now()}`, name: '新任務', goalId: '', targetDays: 7, note: '', days: Array(7).fill(false) }
+        ]);
+      };
+
+      const deleteTask = (taskId) => {
+        if (confirm('確定刪除此任務？')) {
+          handleTaskAction(tasks => tasks.filter(t => t.id !== taskId));
+        }
+      };
+
+      const handleBatchImport = () => {
+        if (!pasteText.trim()) return;
+
+        const lines = pasteText.split('\n');
+        const newTasks = [];
+        const currentLagging = activeQuarter.lagging;
+
+        lines.forEach(line => {
+          const cols = line.split('\t');
+          if (!cols[0] || !cols[0].trim()) return;
+          const name = cols[0].trim();
+          
+          let goalId = '';
+          if (cols[1]) {
+            const goalNameInput = cols[1].trim();
+            const matchedGoal = currentLagging.find(g => g.name === goalNameInput);
+            if (matchedGoal) goalId = matchedGoal.id;
+          }
+
+          let targetDays = 7;
+          if (cols[2]) {
+            const parsedDays = parseInt(cols[2].trim(), 10);
+            if (!isNaN(parsedDays) && parsedDays >= 1 && parsedDays <= 7) targetDays = parsedDays;
+          }
+
+          const note = cols[3] ? cols[3].trim() : '';
+
+          newTasks.push({
+            id: `t_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+            name, goalId, targetDays, note, days: Array(7).fill(false)
+          });
+        });
+
+        if (newTasks.length > 0) handleTaskAction(tasks => [...tasks, ...newTasks]);
+        setShowPasteModal(false);
+        setPasteText('');
+      };
+
+      const updateLaggingCurrent = (goalId, newCurrent) => {
+        const val = Number(newCurrent);
+        if (isNaN(val) || !data) return;
+
+        const newData = { ...data };
+        const currentQData = { ...newData[currentQuarter] };
+        const newLagging = currentQData.lagging.map(g => g.id === goalId ? { ...g, current: val } : g);
+        const currentGaps = newLagging.reduce((acc, g) => ({...acc, [g.id]: Math.max(0, 100 - calculateProgress(g))}), {});
+        const newHistory = { ...currentQData.history, [currentWeek]: currentGaps };
+        
+        currentQData.lagging = newLagging;
+        currentQData.history = newHistory;
+        newData[currentQuarter] = currentQData;
+        saveToCloud(newData);
+      };
+
+      const updateLaggingField = (goalId, field, value) => {
+        if(!data) return;
+        const newData = { ...data };
+        const currentQData = { ...newData[currentQuarter] };
+        
+        let finalValue = value;
+        if (field === 'start' || field === 'target') {
+          finalValue = Number(value);
+          if (isNaN(finalValue)) finalValue = 0;
+        }
+
+        currentQData.lagging = currentQData.lagging.map(g => 
+          g.id === goalId ? { ...g, [field]: finalValue } : g
+        );
+        
+        if (field === 'start' || field === 'target') {
+           const currentGaps = currentQData.lagging.reduce((acc, g) => ({...acc, [g.id]: Math.max(0, 100 - calculateProgress(g))}), {});
+           currentQData.history = { ...currentQData.history, [currentWeek]: currentGaps };
+        }
+
+        newData[currentQuarter] = currentQData;
+        saveToCloud(newData);
+      };
+
+      const exportData = () => {
+        const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(data));
+        const downloadAnchorNode = document.createElement('a');
+        downloadAnchorNode.setAttribute("href", dataStr);
+        downloadAnchorNode.setAttribute("download", "12weekyear_backup.json");
+        document.body.appendChild(downloadAnchorNode);
+        downloadAnchorNode.click();
+        downloadAnchorNode.remove();
+      };
+
+      const importData = (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = (event) => {
+          try {
+            const imported = JSON.parse(event.target.result);
+            if (imported.lagging && imported.weeks) saveToCloud(imported);
+            else alert('檔案格式不正確');
+          } catch (e) {
+            alert('解析 JSON 失敗');
+          }
+        };
+        reader.readAsText(file);
+      };
+
+      if (!data || isSyncing) return (
+        <div className="min-h-screen bg-[#fafafa] flex flex-col items-center justify-center text-zinc-400 space-y-4">
+           <Cloud className="w-8 h-8 animate-pulse text-zinc-300" />
+           <p className="text-sm tracking-widest uppercase">載入資料中...</p>
+        </div>
+      );
+
+      const taskScores = activeWeekData.tasks.map(t => getTaskCompletionRate(t));
+      const leadingScore = taskScores.length === 0 ? 0 : Math.round(taskScores.reduce((a, b) => a + b, 0) / taskScores.length);
+
+      let cumScoreSum = 0;
+      let cumTaskCount = 0;
+      for (let w = 1; w <= currentWeek; w++) {
+        const wData = activeQuarter.weeks[w];
+        if (wData && wData.isEdited) {
+          wData.tasks.forEach(t => {
+            cumScoreSum += getTaskCompletionRate(t);
+            cumTaskCount++;
+          });
+        }
+      }
+      const cumulativeLeadingScore = cumTaskCount === 0 ? 0 : Math.round(cumScoreSum / cumTaskCount);
+
+      const goalColors = {
+        0: { text: 'text-orange-500', hex: '#f97316' },
+        1: { text: 'text-blue-500', hex: '#3b82f6' },
+        2: { text: 'text-emerald-500', hex: '#10b981' }
+      };
+
+      return (
+        <div className="min-h-screen bg-[#fafafa] text-zinc-900 font-sans pb-20 selection:bg-zinc-200">
+          
+          <header className="px-4 sm:px-8 py-6 max-w-6xl mx-auto flex items-center justify-between">
+            <div className="flex items-center space-x-6">
+              <div className="flex items-center space-x-3">
+                <div className="w-8 h-8 bg-zinc-900 rounded-lg flex items-center justify-center shadow-sm shrink-0">
+                  <Target className="w-5 h-5 text-white" />
+                </div>
+                <h1 className="text-xl font-semibold tracking-tight hidden sm:block">12 Week Year</h1>
+              </div>
+              
+              <div className="flex bg-zinc-100 p-1 rounded-lg">
+                {QUARTERS.map(q => (
+                  <button
+                    key={q}
+                    onClick={() => handleQuarterChange(q)}
+                    className={`
+                      px-3 sm:px-4 py-1 sm:py-1.5 text-xs sm:text-sm font-medium rounded-md transition-all
+                      ${currentQuarter === q ? 'bg-white text-zinc-900 shadow-sm' : 'text-zinc-500 hover:text-zinc-700'}
+                    `}
+                  >
+                    {q}
+                  </button>
+                ))}
+              </div>
+            </div>
+            
+            <div className="flex items-center space-x-4 text-xs sm:text-sm">
+              {auth && user && !user.isAnonymous ? (
+                <div className="hidden sm:flex items-center space-x-3">
+                  <div className="flex items-center text-emerald-500 font-medium px-2 py-1 bg-emerald-50 rounded-full">
+                     <Cloud className="w-3.5 h-3.5 mr-1.5" /> 已同步
+                  </div>
+                  <button onClick={handleLogout} className="flex items-center space-x-1.5 text-zinc-500 hover:text-zinc-900 transition-colors">
+                    <LogOut className="w-4 h-4" />
+                    <span>登出</span>
+                  </button>
+                </div>
+              ) : (
+                <button onClick={() => setShowAuthModal(true)} className="flex items-center space-x-1.5 text-blue-500 hover:text-blue-600 transition-colors font-medium px-3 py-1.5 bg-blue-50 rounded-full">
+                  <UserCircle className="w-4 h-4" />
+                  <span>登入/註冊以同步</span>
+                </button>
+              )}
+              <button onClick={exportData} className="hidden sm:flex items-center space-x-1.5 text-zinc-500 hover:text-zinc-900 transition-colors">
+                <Download className="w-4 h-4" />
+                <span>備份</span>
+              </button>
+              <label className="hidden sm:flex items-center space-x-1.5 text-zinc-500 hover:text-zinc-900 transition-colors cursor-pointer">
+                <Upload className="w-4 h-4" />
+                <span>匯入</span>
+                <input type="file" accept=".json" onChange={importData} className="hidden" />
+              </label>
+            </div>
+          </header>
+
+          <main className="max-w-6xl mx-auto px-4 sm:px-8 space-y-8 sm:space-y-12">
+            
+            <section>
+              <h2 className="text-sm font-semibold text-zinc-400 mb-4 tracking-wider uppercase flex items-center">
+                Lagging Indicators ({currentQuarter}) <span className="ml-2 w-full h-px bg-zinc-200"></span>
+              </h2>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 sm:gap-6">
+                {activeQuarter.lagging.map((goal, index) => {
+                  const progress = calculateProgress(goal);
+                  const colorConfig = goalColors[index % 3];
+                  
+                  const goalTasks = activeWeekData.tasks.filter(t => t.goalId === goal.id);
+                  const goalTaskScores = goalTasks.map(t => getTaskCompletionRate(t));
+                  const gLeadingScore = goalTaskScores.length === 0 ? 0 : Math.round(goalTaskScores.reduce((a, b) => a + b, 0) / goalTaskScores.length);
+
+                  return (
+                    <div key={goal.id} className="bg-white p-5 sm:p-6 rounded-2xl border border-zinc-200 shadow-[0_2px_10px_-4px_rgba(0,0,0,0.05)] flex flex-col relative overflow-hidden group">
+                      
+                      <div className="flex flex-col mb-5 space-y-3">
+                        <input 
+                          type="text"
+                          value={goal.name}
+                          onChange={(e) => updateLaggingField(goal.id, 'name', e.target.value)}
+                          className={`font-medium text-lg bg-transparent border-b border-transparent hover:border-zinc-300 focus:border-zinc-900 focus:outline-none transition-colors w-full ${colorConfig.text}`}
+                          placeholder="輸入落後指標名稱..."
+                        />
+                        <div className="flex items-center text-xs font-semibold px-2.5 py-1 bg-zinc-100 text-zinc-600 rounded-md group-hover:bg-zinc-200 transition-colors w-max">
+                          目標: 
+                          <input 
+                            type="number" 
+                            value={goal.target}
+                            onChange={(e) => updateLaggingField(goal.id, 'target', e.target.value)}
+                            className="bg-transparent w-20 sm:w-24 text-center ml-1 focus:outline-none focus:border-b border-zinc-400 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                          />
+                          <input 
+                            type="text" 
+                            value={goal.unit}
+                            onChange={(e) => updateLaggingField(goal.id, 'unit', e.target.value)}
+                            className="bg-transparent w-10 text-center focus:outline-none focus:border-b border-zinc-400"
+                          />
+                        </div>
+                      </div>
+                      
+                      <div className="flex items-center justify-between mb-6">
+                        <div className="flex-1 min-w-0 flex flex-col border-r border-zinc-100 pr-3">
+                          <span className="text-[10px] font-medium text-zinc-400 mb-1 tracking-wider uppercase truncate">目前進度</span>
+                          <div className="flex items-baseline w-full">
+                            <input 
+                              type="number" 
+                              value={goal.current}
+                              onChange={(e) => updateLaggingCurrent(goal.id, e.target.value)}
+                              className="text-lg sm:text-xl font-medium tracking-tight w-full min-w-0 bg-transparent border-b border-transparent hover:border-zinc-300 focus:border-zinc-900 focus:outline-none transition-colors [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                            />
+                            <input 
+                              type="text" 
+                              value={goal.unit}
+                              onChange={(e) => updateLaggingField(goal.id, 'unit', e.target.value)}
+                              className="text-zinc-400 text-sm bg-transparent w-7 ml-1 shrink-0 border-b border-transparent hover:border-zinc-300 focus:border-zinc-400 focus:outline-none transition-colors truncate"
+                            />
+                          </div>
+                        </div>
+
+                        <div className="flex shrink-0 flex-col items-center pl-3">
+                          <span className="text-[10px] font-medium text-zinc-400 mb-1 tracking-wider uppercase whitespace-nowrap">本週行動率</span>
+                          <div className="w-10 h-10 relative flex items-center justify-center mt-1">
+                            {goalTasks.length === 0 ? (
+                              <span className="text-[10px] text-zinc-300 bg-zinc-50 px-2 py-1 rounded">未綁定</span>
+                            ) : (
+                              <>
+                                <svg viewBox="0 0 36 36" className="w-full h-full transform -rotate-90">
+                                  <path className="text-zinc-100" strokeWidth="3.5" stroke="currentColor" fill="none" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" />
+                                  <path 
+                                    className={`${getThresholdColorText(gLeadingScore)} transition-all duration-1000 ease-out`} 
+                                    strokeDasharray={`${gLeadingScore}, 100`} 
+                                    strokeWidth="3.5" 
+                                    strokeLinecap="round" 
+                                    stroke="currentColor" 
+                                    fill="none" 
+                                    d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" 
+                                  />
+                                </svg>
+                                <span className={`absolute text-[10px] font-bold ${getThresholdColorText(gLeadingScore)}`}>
+                                  {gLeadingScore}%
+                               </span>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="mt-auto">
+                        <div className="flex justify-between text-xs text-zinc-400 mb-2">
+                          <span>總進度 {Math.round(progress)}%</span>
+                          <span className="flex items-center">
+                            起點 
+                            <input 
+                              type="number" 
+                              value={goal.start}
+                              onChange={(e) => updateLaggingField(goal.id, 'start', e.target.value)}
+                              className="bg-transparent w-12 sm:w-16 text-right ml-1 focus:outline-none border-b border-transparent hover:border-zinc-300 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                            />
+                          </span>
+                        </div>
+                        <div className="h-1.5 w-full bg-zinc-100 rounded-full overflow-hidden">
+                          <div 
+                            className={`h-full transition-all duration-500 ease-out ${getThresholdColorBg(progress)}`}
+                            style={{ width: `${progress}%` }}
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </section>
+
+            <section className="grid grid-cols-1 md:grid-cols-3 gap-4 sm:gap-6">
+              <div className="bg-white p-5 sm:p-6 rounded-2xl border border-zinc-200 shadow-[0_2px_10px_-4px_rgba(0,0,0,0.05)] flex flex-col justify-between">
+                <div className="flex items-center justify-between mb-4">
+                  <div>
+                    <h3 className="text-zinc-500 text-sm font-medium mb-1">本週行動達成率</h3>
+                    <p className={`text-4xl font-light ${getThresholdColorText(leadingScore)}`}>
+                      {leadingScore}%
+                    </p>
+                  </div>
+                  <div className="w-16 h-16 relative shrink-0">
+                    <svg viewBox="0 0 36 36" className="w-full h-full transform -rotate-90">
+                      <path className="text-zinc-100" strokeWidth="3" stroke="currentColor" fill="none" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" />
+                      <path className={`${getThresholdColorText(leadingScore)} transition-all duration-1000 ease-out`} strokeDasharray={`${leadingScore}, 100`} strokeWidth="3" strokeLinecap="round" stroke="currentColor" fill="none" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" />
+                    </svg>
+                  </div>
+                </div>
+                
+                <div className="pt-4 border-t border-zinc-100 flex items-center justify-between">
+                   <div className="flex items-center text-xs text-zinc-500">
+                     <ListTodo className="w-3.5 h-3.5 mr-1.5" />
+                     <span>累積領先指標 (W1-W{currentWeek})</span>
+                   </div>
+                   <span className={`text-sm font-semibold ${getThresholdColorText(cumulativeLeadingScore)}`}>
+                     {cumulativeLeadingScore}%
+                   </span>
+                </div>
+              </div>
+
+              <div className="bg-white p-5 sm:p-6 rounded-2xl border border-zinc-200 shadow-[0_2px_10px_-4px_rgba(0,0,0,0.05)] col-span-1 flex flex-col">
+                <h3 className="text-zinc-500 text-sm font-medium mb-4 flex items-center">
+                  <TrendingDown className="w-4 h-4 mr-1.5" /> 落後指標剩餘差距
+                </h3>
+                <div className="flex-1 relative w-full mt-2 h-24 sm:h-auto">
+                  <svg viewBox="0 0 120 40" className="w-full h-full overflow-visible" preserveAspectRatio="none">
+                    <line x1="0" y1="0" x2="120" y2="40" stroke="#f4f4f5" strokeWidth="1" strokeDasharray="2 2" />
+                    {[1,3,6,9,12].map(w => (
+                      <text key={`label-${w}`} x={(w-1)*10.9} y="50" fontSize="4" fill="#a1a1aa" textAnchor="middle">W{w}</text>
+                    ))}
+                    
+                    {activeQuarter.lagging.map((goal, index) => {
+                      const hexColor = goalColors[index % 3].hex;
+                      
+                      const points = Array.from({length: currentWeek}).map((_, i) => {
+                        const weekNum = i + 1;
+                        const gap = getGoalGapAtWeek(goal.id, weekNum, activeQuarter.history);
+                        const x = i * (120 / 11);
+                        const y = (gap / 100) * 40;
+                        return `${x},${y}`;
+                      }).join(' ');
+
+                      const currentGap = getGoalGapAtWeek(goal.id, currentWeek, activeQuarter.history);
+                      const circleX = (currentWeek - 1) * (120 / 11);
+                      const circleY = (currentGap / 100) * 40;
+
+                      return (
+                        <g key={`line-${goal.id}`}>
+                          <polyline fill="none" stroke={hexColor} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" points={points} />
+                          <circle cx={circleX} cy={circleY} r="2" fill={hexColor} />
+                        </g>
+                      );
+                    })}
+                  </svg>
+                </div>
+              </div>
+
+              <div className="bg-white p-5 sm:p-6 rounded-2xl border border-zinc-200 shadow-[0_2px_10px_-4px_rgba(0,0,0,0.05)] col-span-1">
+                 <h3 className="text-zinc-500 text-sm font-medium mb-4 flex items-center">
+                  <Activity className="w-4 h-4 mr-1.5" /> 本週執行熱度
+                </h3>
+                <div className="flex justify-between items-end h-20 mt-2">
+                  {DAYS.map((day, i) => {
+                    const dayTasksCount = activeWeekData.tasks.filter(t => t.days[i]).length;
+                    const total = activeWeekData.tasks.length;
+                    const ratio = total > 0 ? dayTasksCount / total : 0;
+                    
+                    let heatClass = 'bg-zinc-100';
+                    let icon = '';
+                    
+                    if (total > 0) {
+                      if (ratio > 0.666) { heatClass = 'bg-red-500'; icon = '🔥'; } 
+                      else if (ratio > 0.333) { heatClass = 'bg-orange-400'; icon = '🌤️'; } 
+                      else { heatClass = 'bg-yellow-200'; icon = '☁️'; }
+                    }
+
+                    return (
+                      <div key={day} className="flex flex-col items-center space-y-1 group">
+                        <span className="text-[12px] h-4 leading-none">{icon}</span>
+                        <div className="w-6 h-12 flex items-end justify-center rounded-sm relative">
+                           <div className="absolute -top-8 bg-zinc-800 text-white text-[10px] px-2 py-1 rounded opacity-0 sm:group-hover:opacity-100 transition-opacity z-10">
+                             {dayTasksCount}/{total}
+                           </div>
+                           <div className={`w-full rounded-md transition-all duration-300 ${heatClass}`} style={{ height: `${Math.max(15, ratio * 100)}%` }} />
+                        </div>
+                        <span className="text-[10px] text-zinc-400">{['一','二','三','四','五','六','日'][i]}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </section>
+
+            <section>
+              <div className="flex items-center justify-between mb-4 sm:mb-6">
+                <h2 className="text-sm font-semibold text-zinc-400 tracking-wider uppercase">Weekly Execution</h2>
+                <div className="flex space-x-1 overflow-x-auto pb-2 scrollbar-hide max-w-[60vw]">
+                  {Array.from({length: 12}).map((_, i) => {
+                    const w = i + 1;
+                    const isActive = w === currentWeek;
+                    const hasData = !!activeQuarter.weeks[w]?.isEdited;
+                    return (
+                      <button
+                        key={w}
+                        onClick={() => setCurrentWeek(w)}
+                        className={`
+                          relative px-3 py-1.5 text-xs sm:text-sm font-medium rounded-lg transition-all whitespace-nowrap
+                          ${isActive ? 'bg-zinc-900 text-white shadow-md' : 'text-zinc-500 hover:bg-zinc-100'}
+                        `}
+                      >
+                        W{w}
+                        {!isActive && hasData && <div className="absolute top-1 right-1 w-1 h-1 bg-zinc-300 rounded-full" />}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div className="bg-white sm:border sm:border-zinc-200 rounded-2xl sm:shadow-[0_2px_10px_-4px_rgba(0,0,0,0.05)] overflow-hidden">
+                <div className="px-4 sm:px-6 py-4 border-b border-zinc-100 bg-zinc-50/50 flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-0">
+                  <div className="flex items-center space-x-3">
+                    <span className="font-medium text-zinc-800">Week {currentWeek} 任務</span>
+                    {activeWeekData.isInherited && (
+                      <span className="text-[10px] bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full border border-amber-200">
+                        繼承自上週
+                      </span>
+                    )}
+                  </div>
+                  
+                  <div className="flex items-center space-x-2">
+                    <button onClick={() => setShowPasteModal(true)} className="text-xs flex items-center space-x-1 bg-white border border-zinc-200 hover:border-zinc-300 px-3 py-1.5 rounded-md shadow-sm transition-colors text-zinc-600 w-full sm:w-auto justify-center">
+                      <FileText className="w-3 h-3" />
+                      <span>試算表匯入</span>
+                    </button>
+                    <button onClick={addTask} className="text-xs flex items-center space-x-1 bg-zinc-900 text-white hover:bg-zinc-800 px-3 py-1.5 rounded-md shadow-sm transition-colors w-full sm:w-auto justify-center">
+                      <Plus className="w-3 h-3" />
+                      <span>新增任務</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* === 桌面版：傳統表格 === */}
+                <div className="hidden md:block overflow-x-auto">
+                  <table className="w-full text-left border-collapse min-w-[1050px]">
+                    <thead>
+                      <tr>
+                        <th className="px-6 py-3 text-xs font-medium text-zinc-400 border-b border-zinc-100 w-[18%]">行動項目</th>
+                        <th className="px-3 py-3 text-xs font-medium text-zinc-400 border-b border-zinc-100 w-[12%]">關聯目標</th>
+                        <th className="px-3 py-3 text-xs font-medium text-zinc-400 border-b border-zinc-100 text-center w-[8%]">每週目標</th>
+                        {DAYS.map(day => (
+                          <th key={day} className="px-2 py-3 text-xs font-medium text-zinc-400 border-b border-zinc-100 text-center w-[5%]">{day}</th>
+                        ))}
+                        <th className="px-3 py-3 text-xs font-medium text-zinc-400 border-b border-zinc-100 text-center w-[7%]">達成率</th>
+                        <th className="px-3 py-3 text-xs font-medium text-zinc-400 border-b border-zinc-100 w-[15%]">備註</th>
+                        <th className="px-3 py-3 text-xs font-medium text-zinc-400 border-b border-zinc-100 text-center w-[5%]">操作</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-zinc-50">
+                      {activeWeekData.tasks.length === 0 ? (
+                        <tr><td colSpan={13} className="px-6 py-12 text-center text-zinc-400 text-sm">本週尚未建立任務。</td></tr>
+                      ) : (
+                        activeWeekData.tasks.map(task => {
+                          const taskCompletion = getTaskCompletionRate(task);
+                          return (
+                            <tr key={task.id} className="group hover:bg-zinc-50/50 transition-colors">
+                              <td className="px-6 py-4 text-sm font-medium text-zinc-700">
+                                <input type="text" value={task.name} onChange={(e) => updateTaskName(task.id, e.target.value)} placeholder="任務名稱" className="bg-transparent border-b border-transparent hover:border-zinc-300 focus:border-zinc-900 focus:outline-none transition-colors w-full py-1" />
+                              </td>
+                              <td className="px-3 py-4 text-sm">
+                                <select value={task.goalId || ''} onChange={(e) => updateTaskGoal(task.id, e.target.value)} className="bg-zinc-100 hover:bg-zinc-200 text-zinc-600 text-xs px-2 py-1.5 rounded-md border-none focus:ring-2 focus:ring-zinc-900 focus:outline-none w-full truncate cursor-pointer transition-colors">
+                                  <option value="">無關聯目標</option>
+                                  {activeQuarter.lagging.map(g => <option key={g.id} value={g.id}>{g.name}</option>)}
+                                </select>
+                              </td>
+                              <td className="px-3 py-4 text-center">
+                                <div className="flex items-center justify-center space-x-1">
+                                  <input type="number" min="1" max="7" value={task.targetDays !== undefined ? task.targetDays : 7} onChange={(e) => updateTaskTargetDays(task.id, e.target.value)} className="w-8 bg-transparent border-b border-zinc-200 hover:border-zinc-400 focus:border-zinc-900 focus:outline-none text-center text-sm transition-colors [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" />
+                                  <span className="text-[10px] text-zinc-400">次</span>
+                                </div>
+                              </td>
+                              {task.days.map((isCompleted, dayIndex) => (
+                                <td key={dayIndex} className="px-2 py-4 text-center">
+                                  <button onClick={() => toggleDay(task.id, dayIndex)} className="focus:outline-none transform transition-transform active:scale-90 p-2 -m-2">
+                                    {isCompleted ? <CheckCircle2 className="w-5 h-5 text-zinc-900 mx-auto" /> : <Circle className="w-5 h-5 text-zinc-200 hover:text-zinc-400 mx-auto transition-colors" />}
+                                  </button>
+                                </td>
+                              ))}
+                              <td className="px-3 py-4 text-center">
+                                 <span className={`text-xs font-bold ${getThresholdColorText(taskCompletion)}`}>{taskCompletion}%</span>
+                              </td>
+                              <td className="px-3 py-4 text-sm">
+                                <input type="text" value={task.note || ''} onChange={(e) => updateTaskNote(task.id, e.target.value)} placeholder="備註..." className="bg-transparent border-b border-transparent hover:border-zinc-300 focus:border-zinc-900 focus:outline-none transition-colors w-full text-xs text-zinc-500 py-1" />
+                              </td>
+                              <td className="px-3 py-4 text-center">
+                                <button onClick={() => deleteTask(task.id)} className="text-zinc-300 hover:text-rose-500 transition-colors opacity-0 group-hover:opacity-100 p-2 -m-2"><Trash2 className="w-4 h-4 mx-auto" /></button>
+                              </td>
+                            </tr>
+                          );
+                        })
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* === 行動版：獨立卡片式排版 === */}
+                <div className="block md:hidden bg-[#fafafa] sm:bg-white p-2 sm:p-4 space-y-4">
+                  {activeWeekData.tasks.length === 0 ? (
+                    <div className="text-center text-zinc-400 py-8 text-sm">本週尚未建立任務。</div>
+                  ) : (
+                    activeWeekData.tasks.map(task => {
+                      const taskCompletion = getTaskCompletionRate(task);
+                      return (
+                        <div key={task.id} className="bg-white p-4 rounded-xl border border-zinc-200 shadow-sm flex flex-col gap-4 relative">
+                          
+                          <div className="flex items-center justify-between gap-3">
+                             <input 
+                               type="text" 
+                               value={task.name} 
+                               onChange={(e) => updateTaskName(task.id, e.target.value)} 
+                               className="font-semibold text-zinc-800 bg-transparent border-b border-transparent focus:border-zinc-900 focus:outline-none w-full text-base" 
+                               placeholder="任務名稱" 
+                             />
+                             <button onClick={() => deleteTask(task.id)} className="p-2 -mr-2 text-zinc-300 hover:text-rose-500 transition-colors">
+                                <Trash2 className="w-4 h-4" />
+                             </button>
+                          </div>
+
+                          <div className="flex items-center justify-between gap-3 text-sm">
+                             <select 
+                               value={task.goalId || ''} 
+                               onChange={(e) => updateTaskGoal(task.id, e.target.value)} 
+                               className="bg-zinc-100 text-zinc-600 text-xs px-2 py-2 rounded-lg border-none focus:outline-none flex-1 truncate"
+                             >
+                                <option value="">無關聯目標</option>
+                                {activeQuarter.lagging.map(g => <option key={g.id} value={g.id}>{g.name}</option>)}
+                             </select>
+                             <div className="flex items-center space-x-1 shrink-0 bg-zinc-100 px-3 py-1.5 rounded-lg">
+                                <span className="text-xs text-zinc-500">每週</span>
+                                <input 
+                                  type="number" min="1" max="7" 
+                                  value={task.targetDays !== undefined ? task.targetDays : 7} 
+                                  onChange={(e) => updateTaskTargetDays(task.id, e.target.value)} 
+                                  className="w-6 bg-transparent focus:outline-none text-center text-sm font-semibold text-zinc-700 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" 
+                                />
+                                <span className="text-xs text-zinc-500">次</span>
+                             </div>
+                          </div>
+
+                          <div className="flex justify-between items-center py-3 border-y border-zinc-100">
+                             {task.days.map((isCompleted, dayIndex) => (
+                                <div key={dayIndex} className="flex flex-col items-center gap-1.5">
+                                   <span className="text-[10px] text-zinc-400 font-medium">
+                                     {['一','二','三','四','五','六','日'][dayIndex]}
+                                   </span>
+                                   <button 
+                                     onClick={() => toggleDay(task.id, dayIndex)} 
+                                     className="p-2 -m-2 focus:outline-none transform transition-transform active:scale-90"
+                                   >
+                                      {isCompleted ? (
+                                        <CheckCircle2 className="w-7 h-7 text-zinc-900" />
+                                      ) : (
+                                        <Circle className="w-7 h-7 text-zinc-200" />
+                                      )}
+                                   </button>
+                                </div>
+                             ))}
+                          </div>
+
+                          <div className="flex items-center justify-between gap-3">
+                             <input 
+                               type="text" 
+                               value={task.note || ''} 
+                               onChange={(e) => updateTaskNote(task.id, e.target.value)} 
+                               placeholder="點此新增備註..." 
+                               className="bg-zinc-50 px-3 py-2 rounded-lg border border-transparent focus:border-zinc-300 focus:outline-none text-xs text-zinc-600 flex-1" 
+                             />
+                             <div className="flex flex-col items-end shrink-0">
+                               <span className="text-[10px] text-zinc-400">達成率</span>
+                               <span className={`text-sm font-bold ${getThresholdColorText(taskCompletion)}`}>
+                                 {taskCompletion}%
+                               </span>
+                             </div>
+                          </div>
+                        </div>
+                      )
+                    })
+                  )}
+                </div>
+
+              </div>
+            </section>
+          </main>
+
+          {/* Modal - 批次匯入 */}
+          {showPasteModal && (
+            <div className="fixed inset-0 bg-zinc-900/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+              <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl overflow-hidden flex flex-col">
+                <div className="px-6 py-4 border-b border-zinc-100 flex items-center justify-between">
+                  <h3 className="font-medium text-zinc-900 flex items-center">
+                    <FileText className="w-4 h-4 mr-2 text-zinc-500" />
+                    從試算表批次匯入
+                  </h3>
+                  <button onClick={() => setShowPasteModal(false)} className="text-zinc-400 hover:text-zinc-600 transition-colors"><X className="w-5 h-5" /></button>
+                </div>
+                
+                <div className="p-6 overflow-y-auto max-h-[70vh]">
+                  <div className="bg-zinc-50 rounded-lg p-4 text-xs sm:text-sm text-zinc-600 mb-4 border border-zinc-200">
+                    <p className="font-medium mb-1">💡 如何使用：</p>
+                    <p>請直接在 Google Sheets 或 Excel 框選多行內容，然後在此處貼上。</p>
+                    <p className="mt-2 text-zinc-500">建議的欄位順序為（欄位之間用 Tab 分隔）：<br />
+                    <strong className="text-zinc-700">1.任務名稱(必填)</strong> | 2.關聯目標名稱 | 3.每週目標次數 | 4.備註</p>
+                  </div>
+                  <textarea value={pasteText} onChange={(e) => setPasteText(e.target.value)} placeholder="在此貼上您的試算表內容..." className="w-full h-48 p-4 border border-zinc-200 rounded-lg focus:ring-2 focus:ring-zinc-900 focus:border-zinc-900 outline-none resize-none text-sm font-mono text-zinc-700 placeholder:font-sans" />
+                </div>
+
+                <div className="px-6 py-4 bg-zinc-50 border-t border-zinc-100 flex justify-end space-x-3">
+                  <button onClick={() => setShowPasteModal(false)} className="px-4 py-2 text-sm font-medium text-zinc-600 hover:text-zinc-900 transition-colors">取消</button>
+                  <button onClick={handleBatchImport} className="px-4 py-2 text-sm font-medium bg-zinc-900 text-white rounded-lg hover:bg-zinc-800 transition-colors shadow-sm">確認匯入</button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Modal - 帳號登入/註冊 */}
+          {showAuthModal && (
+            <div className="fixed inset-0 bg-zinc-900/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+              <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm overflow-hidden flex flex-col">
+                <div className="px-6 py-4 border-b border-zinc-100 flex items-center justify-between">
+                  <h3 className="font-medium text-zinc-900 flex items-center">
+                    <UserCircle className="w-5 h-5 mr-2 text-zinc-500" />
+                    {authMode === 'login' ? '登入以同步資料' : '註冊新帳號'}
+                  </h3>
+                  <button onClick={() => setShowAuthModal(false)} className="text-zinc-400 hover:text-zinc-600 transition-colors"><X className="w-5 h-5" /></button>
+                </div>
+                
+                <form onSubmit={handleAuthSubmit} className="p-6 space-y-4">
+                  {authError && (
+                    <div className="p-3 bg-rose-50 text-rose-600 text-xs rounded-lg border border-rose-100">
+                      {authError}
+                    </div>
+                  )}
+                  
+                  <div>
+                    <label className="block text-xs font-medium text-zinc-500 mb-1">電子信箱 Email</label>
+                    <input 
+                      type="email" required value={authEmail} onChange={(e) => setAuthEmail(e.target.value)}
+                      className="w-full px-3 py-2 border border-zinc-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-zinc-900 text-sm"
+                      placeholder="your@email.com"
+                    />
+                  </div>
+                  
+                  <div>
+                    <label className="block text-xs font-medium text-zinc-500 mb-1">密碼 Password</label>
+                    <input 
+                      type="password" required minLength={6} value={authPassword} onChange={(e) => setAuthPassword(e.target.value)}
+                      className="w-full px-3 py-2 border border-zinc-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-zinc-900 text-sm"
+                      placeholder="至少 6 個字元"
+                    />
+                  </div>
+
+                  <button type="submit" disabled={authLoading} className="w-full py-2.5 bg-zinc-900 text-white rounded-lg text-sm font-medium hover:bg-zinc-800 transition-colors disabled:opacity-50 mt-4">
+                    {authLoading ? '處理中...' : (authMode === 'login' ? '登入帳號' : '註冊並綁定當前資料')}
+                  </button>
+
+                  <div className="text-center mt-4">
+                    <button type="button" onClick={() => { setAuthMode(authMode === 'login' ? 'register' : 'login'); setAuthError(''); }} className="text-xs text-zinc-500 hover:text-zinc-900 transition-colors underline underline-offset-2">
+                      {authMode === 'login' ? '還沒有帳號？點此註冊' : '已經有帳號了？點此登入'}
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
+
+        </div>
+      );
+    }
+
+    // --- 7. 渲染 React 應用 ---
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<App />);
+  </script>
+</body>
+</html>
