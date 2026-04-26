@@ -175,14 +175,24 @@
 
     // --- 5. 邏輯與運算輔助函數 ---
     const calculateProgress = (goal) => {
-      if (goal.reverse) {
-        if (goal.current <= goal.target) return 100;
-        if (goal.current >= goal.start) return 0;
-        return ((goal.start - goal.current) / (goal.start - goal.target)) * 100;
-      } else {
-        if (goal.current >= goal.target) return 100;
-        if (goal.current <= goal.start) return 0;
-        return ((goal.current - goal.start) / (goal.target - goal.start)) * 100;
+      const start = Number(goal.start);
+      const target = Number(goal.target);
+      const current = Number(goal.current);
+
+      // 防呆：如果起點等於目標
+      if (start === target) return current === target ? 100 : 0;
+
+      // 自動判斷是否為「遞減型目標」（例如：減重、還款）
+      if (start > target) {
+        if (current >= start) return 0;
+        if (current <= target) return 100;
+        return ((start - current) / (start - target)) * 100;
+      } 
+      // 正常的「遞增型目標」（例如：收入、分數）
+      else {
+        if (current <= start) return 0;
+        if (current >= target) return 100;
+        return ((current - start) / (target - start)) * 100;
       }
     };
 
