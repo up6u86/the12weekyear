@@ -174,14 +174,23 @@
 
     // --- 5. 邏輯與運算輔助函數 ---
     const calculateProgress = (goal) => {
-      if (goal.reverse) {
-        if (goal.current <= goal.target) return 100;
-        if (goal.current >= goal.start) return 0;
-        return ((goal.start - goal.current) / (goal.start - goal.target)) * 100;
+      // 確保將字串轉換為數字進行安全運算
+      const start = Number(goal.start) || 0;
+      const target = Number(goal.target) || 0;
+      const current = Number(goal.current) || 0;
+      
+      // 自動判斷：如果起點大於目標（例如體重 76 -> 60），自動套用「減少型」邏輯
+      const isDecreasing = start > target;
+
+      if (isDecreasing) {
+        if (current <= target) return 100; // 體重小於等於目標 -> 100%
+        if (current >= start) return 0;    // 體重大於等於起點 -> 0%
+        return ((start - current) / (start - target)) * 100;
       } else {
-        if (goal.current >= goal.target) return 100;
-        if (goal.current <= goal.start) return 0;
-        return ((goal.current - goal.start) / (goal.target - goal.start)) * 100;
+        // 常規增加型目標（例如收入 0 -> 10000）
+        if (current >= target) return 100;
+        if (current <= start) return 0;
+        return ((current - start) / (target - start)) * 100;
       }
     };
 
