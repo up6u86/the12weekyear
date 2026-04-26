@@ -15,6 +15,9 @@
   <!-- 引入 Babel 以在瀏覽器中編譯 JSX -->
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 
+  <!-- 引入 HTML2PDF (用於匯出 A4 PDF) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+
   <style>
     /* 隱藏滾動條的輔助樣式 */
     .scrollbar-hide::-webkit-scrollbar { display: none; }
@@ -81,7 +84,7 @@
       try {
         return localStorage.getItem(key);
       } catch (e) {
-        console.warn("LocalStorage 讀取失敗 (可能處於無痕模式或內建瀏覽器環境):", e);
+        console.warn("LocalStorage 讀取失敗:", e);
         return null;
       }
     };
@@ -90,7 +93,7 @@
       try {
         localStorage.setItem(key, value);
       } catch (e) {
-        console.warn("LocalStorage 寫入失敗 (儲存空間受限):", e);
+        console.warn("LocalStorage 寫入失敗:", e);
       }
     };
 
@@ -106,7 +109,6 @@
     );
     const Target = (p) => <Icon {...p}><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></Icon>;
     const Download = (p) => <Icon {...p}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/></Icon>;
-    const Upload = (p) => <Icon {...p}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" x2="12" y1="3" y2="15"/></Icon>;
     const Cloud = (p) => <Icon {...p}><path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"/></Icon>;
     const LogOut = (p) => <Icon {...p}><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" x2="9" y1="12" y2="12"/></Icon>;
     const UserCircle = (p) => <Icon {...p}><circle cx="12" cy="12" r="10"/><circle cx="12" cy="10" r="3"/><path d="M7 20.662V19a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v1.662"/></Icon>;
@@ -130,10 +132,9 @@
       ],
       history: {},
       weeks: {},
-      review: '' // 新增：單季回顧
+      review: ''
     });
 
-    // 多年度資料結構
     const INITIAL_DATA = {
       targetDate: '2026-12-31',
       visionTitle: '',
@@ -164,7 +165,7 @@
           Q2: createEmptyQuarter(),
           Q3: createEmptyQuarter(),
           Q4: createEmptyQuarter(),
-          annualReview: '' // 新增：年度回顧
+          annualReview: ''
         }
       }
     };
@@ -174,23 +175,14 @@
 
     // --- 5. 邏輯與運算輔助函數 ---
     const calculateProgress = (goal) => {
-      // 確保將字串轉換為數字進行安全運算
-      const start = Number(goal.start) || 0;
-      const target = Number(goal.target) || 0;
-      const current = Number(goal.current) || 0;
-      
-      // 自動判斷：如果起點大於目標（例如體重 76 -> 60），自動套用「減少型」邏輯
-      const isDecreasing = start > target;
-
-      if (isDecreasing) {
-        if (current <= target) return 100; // 體重小於等於目標 -> 100%
-        if (current >= start) return 0;    // 體重大於等於起點 -> 0%
-        return ((start - current) / (start - target)) * 100;
+      if (goal.reverse) {
+        if (goal.current <= goal.target) return 100;
+        if (goal.current >= goal.start) return 0;
+        return ((goal.start - goal.current) / (goal.start - goal.target)) * 100;
       } else {
-        // 常規增加型目標（例如收入 0 -> 10000）
-        if (current >= target) return 100;
-        if (current <= start) return 0;
-        return ((current - start) / (target - start)) * 100;
+        if (goal.current >= goal.target) return 100;
+        if (goal.current <= goal.start) return 0;
+        return ((goal.current - goal.start) / (goal.target - goal.start)) * 100;
       }
     };
 
@@ -228,12 +220,15 @@
       const [user, setUser] = useState(null);
       const [data, setData] = useState(null);
       
-      // 新增多年度與總結狀態
-      const [currentYear, setCurrentYear] = useState('2026');
-      const [currentQuarter, setCurrentQuarter] = useState('Q1');
-      const [currentWeek, setCurrentWeek] = useState(1);
+      // 🌟 新增：從 localStorage 讀取最後一次瀏覽的進度
+      const [currentYear, setCurrentYear] = useState(() => safeGetItem('12wy_year') || '2026');
+      const [currentQuarter, setCurrentQuarter] = useState(() => safeGetItem('12wy_quarter') || 'Q1');
+      const [currentWeek, setCurrentWeek] = useState(() => {
+        const saved = safeGetItem('12wy_week');
+        return saved === 'review' ? 'review' : (saved ? parseInt(saved, 10) : 1);
+      });
       
-      // 優化 Auth 讀取狀態 (預設不再卡死)
+      // 優化 Auth 讀取狀態
       const [isAuthChecking, setIsAuthChecking] = useState(true);
       const [isSyncing, setIsSyncing] = useState(false);
       const [hasLoadWarning, setHasLoadWarning] = useState(false); 
@@ -248,7 +243,6 @@
       const [showPasteModal, setShowPasteModal] = useState(false);
       const [pasteText, setPasteText] = useState('');
 
-      // 新增年份 Modal 狀態
       const [showYearModal, setShowYearModal] = useState(false);
       const [yearInput, setYearInput] = useState('');
 
@@ -261,7 +255,23 @@
       const remainingWeeks = Math.floor(diffDays / 7);
       const remainingDays = diffDays % 7;
 
-      // 檢查並補齊舊版資料，自動轉換為支援多年度的新結構
+      // 記錄分頁狀態
+      useEffect(() => { safeSetItem('12wy_year', currentYear); }, [currentYear]);
+      useEffect(() => { safeSetItem('12wy_quarter', currentQuarter); }, [currentQuarter]);
+      useEffect(() => { safeSetItem('12wy_week', currentWeek); }, [currentWeek]);
+
+      // 🌟 新增：完美修復 textarea 重新整理後過高/變形的問題
+      useEffect(() => {
+        const timer = setTimeout(() => {
+          const textareas = document.querySelectorAll('.vision-textarea');
+          textareas.forEach(ta => {
+            ta.style.height = 'auto';
+            ta.style.height = ta.scrollHeight + 'px';
+          });
+        }, 100);
+        return () => clearTimeout(timer);
+      }, [data?.visions, currentQuarter, currentWeek, currentYear]);
+
       const migrateData = (parsed) => {
         let migrated = { ...parsed };
         
@@ -293,7 +303,7 @@
         return migrated;
       };
 
-      // 1. 初始化 Auth 與 Persistence (徹底解耦，保證不卡畫面)
+      // 1. 初始化 Auth 與 Persistence
       useEffect(() => {
         const loadLocalData = () => {
           const saved = safeGetItem('12wy_data');
@@ -311,7 +321,7 @@
 
         try {
           setPersistence(auth, browserLocalPersistence).catch((error) => {
-            console.warn("無法啟用本地持久化 (可能處於受限環境):", error);
+            console.warn("無法啟用本地持久化:", error);
             setHasLoadWarning(true);
           }).finally(() => {
             const unsubscribe = onAuthStateChanged(auth, (u) => {
@@ -319,11 +329,8 @@
               if (u) {
                 setIsAuthChecking(false);
               } else {
-                // 放行 UI：立刻載入本地端資料，不用等 Firebase 匿名登入回傳
                 loadLocalData();
                 setIsAuthChecking(false);
-
-                // 背景嘗試匿名登入
                 signInAnonymously(auth).catch((error) => {
                   console.warn("匿名登入失敗/受限:", error);
                   setHasLoadWarning(true);
@@ -345,7 +352,6 @@
         if (!auth || !user) return;
         setIsSyncing(true);
 
-        // 5秒超時保護：如果網路極慢，強制解除同步狀態
         let syncTimeoutId = setTimeout(() => {
           if (isSyncing) {
             setIsSyncing(false);
@@ -398,7 +404,7 @@
       // 3. 雲端與本地同步保存函數
       const saveToCloud = (newData) => {
         setData(newData);
-        safeSetItem('12wy_data', JSON.stringify(newData)); // 雙重保險
+        safeSetItem('12wy_data', JSON.stringify(newData));
         if (auth && user) {
           const docRef = doc(db, 'artifacts', appId, 'users', user.uid, 'data', 'dashboard');
           setDoc(docRef, { payload: newData }, { merge: true }).catch(e => {
@@ -425,7 +431,7 @@
           setShowAuthModal(false);
           setAuthEmail('');
           setAuthPassword('');
-          setHasLoadWarning(false); // 成功登入後清除警告
+          setHasLoadWarning(false);
         } catch (err) {
           if (err.code === 'auth/configuration-not-found' || err.code === 'auth/operation-not-allowed') {
             setAuthError('Firebase 尚未啟用「電子郵件/密碼」驗證功能，請至控制台設定');
@@ -442,6 +448,19 @@
       const handleLogout = async () => {
         await signOut(auth);
         try { await signInAnonymously(auth); } catch (error) { console.error(error); }
+      };
+
+      // 🌟 新增：匯出 PDF 功能
+      const exportPDF = () => {
+        const element = document.getElementById('pdf-export-area');
+        const opt = {
+          margin:       10,
+          filename:     `12WeekYear_${currentYear}_${currentQuarter}_W${currentWeek}.pdf`,
+          image:        { type: 'jpeg', quality: 0.98 },
+          html2canvas:  { scale: 2, useCORS: true, backgroundColor: '#fafafa' },
+          jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' }
+        };
+        window.html2pdf().set(opt).from(element).save();
       };
 
       // --- 年份與總結操作 ---
@@ -627,30 +646,6 @@
         saveToCloud(newData);
       };
 
-      const exportData = () => {
-        const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(data));
-        const downloadAnchorNode = document.createElement('a');
-        downloadAnchorNode.setAttribute("href", dataStr);
-        downloadAnchorNode.setAttribute("download", `12weekyear_backup_${currentYear}.json`);
-        document.body.appendChild(downloadAnchorNode);
-        downloadAnchorNode.click(); downloadAnchorNode.remove();
-      };
-
-      const importData = (e) => {
-        const file = e.target.files[0];
-        if (!file) return;
-        const reader = new FileReader();
-        reader.onload = (event) => {
-          try {
-            const imported = JSON.parse(event.target.result);
-            if (imported.years || imported.lagging) saveToCloud(migrateData(imported));
-            else alert('檔案格式不正確');
-          } catch (e) { alert('解析 JSON 失敗'); }
-        };
-        reader.readAsText(file);
-      };
-
-      // 載入畫面防護：只依賴 isAuthChecking，確保一旦拿到初始資料就立刻顯示
       if (isAuthChecking || !data) return (
         <div className="min-h-screen bg-[#fafafa] flex flex-col items-center justify-center text-zinc-400 space-y-4">
            <Cloud className="w-8 h-8 animate-pulse text-zinc-300" />
@@ -717,7 +712,7 @@
       }
 
       return (
-        <div className="min-h-screen bg-[#fafafa] text-zinc-900 font-sans pb-20 selection:bg-zinc-200">
+        <div id="pdf-export-area" className="min-h-screen bg-[#fafafa] text-zinc-900 font-sans pb-20 selection:bg-zinc-200">
           
           {/* ================= 頂部導航列 ================= */}
           <header className="px-4 sm:px-8 py-6 max-w-6xl mx-auto flex flex-col sm:flex-row sm:items-center justify-between gap-4 sm:gap-0">
@@ -760,35 +755,33 @@
               </div>
             </div>
             
-            <div className="flex items-center space-x-4 text-xs sm:text-sm">
-              <span className="text-xs font-normal text-zinc-400 bg-zinc-100 px-2 py-1 rounded">今日 {todayStr}</span>
-              
-              {auth && user && !user.isAnonymous ? (
-                <div className="hidden sm:flex items-center space-x-3">
-                  <div className="flex items-center text-emerald-500 font-medium px-2 py-1 bg-emerald-50 rounded-full">
-                     <Cloud className="w-3.5 h-3.5 mr-1.5" /> 已同步
+            {/* 🌟 頂部右側按鈕群 (登入 / 備份PDF) */}
+            <div className="flex flex-col items-end space-y-2 shrink-0" data-html2canvas-ignore="true">
+              <div className="flex items-center space-x-3 text-xs sm:text-sm">
+                <span className="text-xs font-normal text-zinc-400 bg-zinc-100 px-2 py-1 rounded">今日 {todayStr}</span>
+                {auth && user && !user.isAnonymous ? (
+                  <div className="flex items-center space-x-2 sm:space-x-3">
+                    <div className="hidden sm:flex items-center text-emerald-500 font-medium px-2 py-1 bg-emerald-50 rounded-full">
+                       <Cloud className="w-3.5 h-3.5 mr-1.5" /> 已同步
+                    </div>
+                    <button onClick={handleLogout} className="flex items-center space-x-1 text-zinc-500 hover:text-zinc-900 transition-colors">
+                      <LogOut className="w-4 h-4" />
+                      <span>登出</span>
+                    </button>
                   </div>
-                  <button onClick={handleLogout} className="flex items-center space-x-1.5 text-zinc-500 hover:text-zinc-900 transition-colors">
-                    <LogOut className="w-4 h-4" />
-                    <span>登出</span>
+                ) : (
+                  <button onClick={() => setShowAuthModal(true)} className="flex items-center space-x-1.5 text-blue-500 hover:text-blue-600 transition-colors font-medium px-3 py-1.5 bg-blue-50 rounded-full">
+                    <UserCircle className="w-4 h-4" />
+                    <span className="hidden sm:inline">登入以同步</span>
+                    <span className="sm:hidden">同步</span>
                   </button>
-                </div>
-              ) : (
-                <button onClick={() => setShowAuthModal(true)} className="flex items-center space-x-1.5 text-blue-500 hover:text-blue-600 transition-colors font-medium px-3 py-1.5 bg-blue-50 rounded-full">
-                  <UserCircle className="w-4 h-4" />
-                  <span className="hidden sm:inline">登入以同步</span>
-                  <span className="sm:hidden">同步</span>
-                </button>
-              )}
-              <button onClick={exportData} className="hidden sm:flex items-center space-x-1.5 text-zinc-500 hover:text-zinc-900 transition-colors">
-                <Download className="w-4 h-4" />
-                <span>備份</span>
+                )}
+              </div>
+              {/* 備份按鍵 (僅桌面顯示，位於登入下方) */}
+              <button onClick={exportPDF} className="hidden sm:flex items-center space-x-1.5 text-zinc-500 hover:text-zinc-900 transition-colors text-xs mr-1">
+                <Download className="w-3.5 h-3.5" />
+                <span>備份 (下載 PDF)</span>
               </button>
-              <label className="hidden sm:flex items-center space-x-1.5 text-zinc-500 hover:text-zinc-900 transition-colors cursor-pointer">
-                <Upload className="w-4 h-4" />
-                <span>匯入</span>
-                <input type="file" accept=".json" onChange={importData} className="hidden" />
-              </label>
             </div>
           </header>
 
@@ -906,10 +899,9 @@
                           <textarea 
                             value={v}
                             onChange={(e) => updateVisionItem(i, e.target.value)}
-                            className="text-zinc-800 text-sm bg-transparent focus:outline-none w-full resize-none overflow-hidden"
+                            className="vision-textarea text-zinc-800 text-sm bg-transparent focus:outline-none w-full resize-none overflow-hidden"
                             placeholder="點此輸入願景內容..."
                             rows={1}
-                            ref={(el) => { if(el) { el.style.height = 'auto'; el.style.height = el.scrollHeight + 'px'; } }}
                             onInput={(e) => { e.target.style.height = 'auto'; e.target.style.height = e.target.scrollHeight + 'px'; }}
                             style={{ minHeight: '24px' }}
                           />
@@ -1257,11 +1249,7 @@
                             )}
                           </div>
                           
-                          <div className="flex items-center space-x-2">
-                            <button onClick={() => setShowPasteModal(true)} className="text-xs flex items-center space-x-1 bg-white border border-zinc-200 hover:border-zinc-300 px-3 py-1.5 rounded-md shadow-sm transition-colors text-zinc-600 w-full sm:w-auto justify-center">
-                              <FileText className="w-3 h-3" />
-                              <span>試算表匯入</span>
-                            </button>
+                          <div className="flex items-center space-x-2" data-html2canvas-ignore="true">
                             <button onClick={addTask} className="text-xs flex items-center space-x-1 bg-zinc-900 text-white hover:bg-zinc-800 px-3 py-1.5 rounded-md shadow-sm transition-colors w-full sm:w-auto justify-center">
                               <Plus className="w-3 h-3" />
                               <span>新增任務</span>
@@ -1269,7 +1257,7 @@
                           </div>
                         </div>
 
-                        {/* === 桌面版：傳統表格 (已優化捲軸與首欄凍結) === */}
+                        {/* === 桌面版：傳統表格 (優雅捲軸) === */}
                         <div className="hidden md:block overflow-x-auto pb-4 custom-scrollbar relative">
                           <table className="w-full text-left border-collapse min-w-[1050px]">
                             <thead>
@@ -1387,36 +1375,6 @@
             )}
 
           </main>
-
-          {/* Modal - 批次匯入 */}
-          {showPasteModal && (
-            <div className="fixed inset-0 bg-zinc-900/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-              <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl overflow-hidden flex flex-col">
-                <div className="px-6 py-4 border-b border-zinc-100 flex items-center justify-between">
-                  <h3 className="font-medium text-zinc-900 flex items-center">
-                    <FileText className="w-4 h-4 mr-2 text-zinc-500" />
-                    從試算表批次匯入
-                  </h3>
-                  <button onClick={() => setShowPasteModal(false)} className="text-zinc-400 hover:text-zinc-600 transition-colors"><X className="w-5 h-5" /></button>
-                </div>
-                
-                <div className="p-6 overflow-y-auto max-h-[70vh]">
-                  <div className="bg-zinc-50 rounded-lg p-4 text-xs sm:text-sm text-zinc-600 mb-4 border border-zinc-200">
-                    <p className="font-medium mb-1">💡 如何使用：</p>
-                    <p>請直接在 Google Sheets 或 Excel 框選多行內容，然後在此處貼上。</p>
-                    <p className="mt-2 text-zinc-500">建議的欄位順序為（欄位之間用 Tab 分隔）：<br />
-                    <strong className="text-zinc-700">1.任務名稱(必填)</strong> | 2.關聯目標名稱 | 3.每週目標次數 | 4.備註</p>
-                  </div>
-                  <textarea value={pasteText} onChange={(e) => setPasteText(e.target.value)} placeholder="在此貼上您的試算表內容..." className="w-full h-48 p-4 border border-zinc-200 rounded-lg focus:ring-2 focus:ring-zinc-900 focus:border-zinc-900 outline-none resize-none text-sm font-mono text-zinc-700 placeholder:font-sans" />
-                </div>
-
-                <div className="px-6 py-4 bg-zinc-50 border-t border-zinc-100 flex justify-end space-x-3">
-                  <button onClick={() => setShowPasteModal(false)} className="px-4 py-2 text-sm font-medium text-zinc-600 hover:text-zinc-900 transition-colors">取消</button>
-                  <button onClick={handleBatchImport} className="px-4 py-2 text-sm font-medium bg-zinc-900 text-white rounded-lg hover:bg-zinc-800 transition-colors shadow-sm">確認匯入</button>
-                </div>
-              </div>
-            </div>
-          )}
 
           {/* Modal - 帳號登入/註冊 */}
           {showAuthModal && (
