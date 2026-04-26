@@ -31,6 +31,21 @@
       border-bottom: 1px solid rgba(0,0,0,0.5);
       z-index: 10;
     }
+
+    /* 桌面版任務表格專用的優雅捲軸，避免覆蓋內容 */
+    .custom-scrollbar::-webkit-scrollbar {
+      height: 8px;
+    }
+    .custom-scrollbar::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    .custom-scrollbar::-webkit-scrollbar-thumb {
+      background: #e4e4e7;
+      border-radius: 4px;
+    }
+    .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+      background: #d4d4d8;
+    }
   </style>
 </head>
 <body>
@@ -60,6 +75,24 @@
       auth = getAuth(app);
       db = getFirestore(app);
     }
+
+    // --- 安全的 LocalStorage 操作 (防護 LINE/無痕模式崩潰) ---
+    const safeGetItem = (key) => {
+      try {
+        return localStorage.getItem(key);
+      } catch (e) {
+        console.warn("LocalStorage 讀取失敗 (可能處於無痕模式或內建瀏覽器環境):", e);
+        return null;
+      }
+    };
+
+    const safeSetItem = (key, value) => {
+      try {
+        localStorage.setItem(key, value);
+      } catch (e) {
+        console.warn("LocalStorage 寫入失敗 (儲存空間受限):", e);
+      }
+    };
 
     // --- 2. React Hooks ---
     const { useState, useEffect, useMemo } = React;
@@ -191,9 +224,10 @@
       const [currentQuarter, setCurrentQuarter] = useState('Q1');
       const [currentWeek, setCurrentWeek] = useState(1);
       
-      // 優化 Auth 讀取狀態
+      // 優化 Auth 讀取狀態 (預設不再卡死)
       const [isAuthChecking, setIsAuthChecking] = useState(true);
-      const [isSyncing, setIsSyncing] = useState(true);
+      const [isSyncing, setIsSyncing] = useState(false);
+      const [hasLoadWarning, setHasLoadWarning] = useState(false); 
       
       const [showAuthModal, setShowAuthModal] = useState(false);
       const [authMode, setAuthMode] = useState('login'); 
@@ -250,10 +284,10 @@
         return migrated;
       };
 
-      // 1. 初始化 Auth 與 Persistence
+      // 1. 初始化 Auth 與 Persistence (徹底解耦，保證不卡畫面)
       useEffect(() => {
         const loadLocalData = () => {
-          const saved = localStorage.getItem('12wy_data');
+          const saved = safeGetItem('12wy_data');
           if (saved) {
              try { setData(migrateData(JSON.parse(saved))); } 
              catch (e) { setData(INITIAL_DATA); }
@@ -263,58 +297,104 @@
         if (!auth) {
           loadLocalData();
           setIsAuthChecking(false);
-          setIsSyncing(false);
           return;
         }
 
-        setPersistence(auth, browserLocalPersistence).then(() => {
-          const unsubscribe = onAuthStateChanged(auth, (u) => {
-            setUser(u);
-            if (u) {
-              setIsAuthChecking(false);
-            } else {
-              signInAnonymously(auth).catch((error) => {
-                console.error("Auth error:", error);
-                loadLocalData();
-              }).finally(() => {
+        try {
+          setPersistence(auth, browserLocalPersistence).catch((error) => {
+            console.warn("無法啟用本地持久化 (可能處於受限環境):", error);
+            setHasLoadWarning(true);
+          }).finally(() => {
+            const unsubscribe = onAuthStateChanged(auth, (u) => {
+              setUser(u);
+              if (u) {
                 setIsAuthChecking(false);
-              });
-            }
+              } else {
+                // 放行 UI：立刻載入本地端資料，不用等 Firebase 匿名登入回傳
+                loadLocalData();
+                setIsAuthChecking(false);
+
+                // 背景嘗試匿名登入
+                signInAnonymously(auth).catch((error) => {
+                  console.warn("匿名登入失敗/受限:", error);
+                  setHasLoadWarning(true);
+                });
+              }
+            });
+            return () => unsubscribe();
           });
-          return () => unsubscribe();
-        }).catch(console.error);
+        } catch (e) {
+          console.error("Auth 初始化錯誤:", e);
+          loadLocalData();
+          setIsAuthChecking(false);
+          setHasLoadWarning(true);
+        }
       }, []);
 
       // 2. 獲取遠端資料庫
       useEffect(() => {
         if (!auth || !user) return;
+        setIsSyncing(true);
 
-        const docRef = doc(db, 'artifacts', appId, 'users', user.uid, 'data', 'dashboard');
-        const unsubscribe = onSnapshot(docRef, (docSnap) => {
-          if (docSnap.exists() && !docSnap.metadata.hasPendingWrites) {
-            setData(migrateData(docSnap.data().payload));
-          } else if (!docSnap.exists()) {
-            const saved = localStorage.getItem('12wy_data');
-            const initData = saved ? migrateData(JSON.parse(saved)) : INITIAL_DATA;
-            setData(initData);
-            setDoc(docRef, { payload: initData }, { merge: true });
+        // 5秒超時保護：如果網路極慢，強制解除同步狀態
+        let syncTimeoutId = setTimeout(() => {
+          if (isSyncing) {
+            setIsSyncing(false);
+            if (!data) {
+              const saved = safeGetItem('12wy_data');
+              setData(saved ? migrateData(JSON.parse(saved)) : INITIAL_DATA);
+            }
           }
-          setIsSyncing(false);
-        }, (err) => {
-          console.error("Firestore error:", err);
-          setIsSyncing(false);
-        });
+        }, 5000);
 
-        return () => unsubscribe();
+        try {
+          const docRef = doc(db, 'artifacts', appId, 'users', user.uid, 'data', 'dashboard');
+          const unsubscribe = onSnapshot(docRef, (docSnap) => {
+            clearTimeout(syncTimeoutId);
+            if (docSnap.exists() && !docSnap.metadata.hasPendingWrites) {
+              setData(migrateData(docSnap.data().payload));
+            } else if (!docSnap.exists()) {
+              const saved = safeGetItem('12wy_data');
+              const initData = saved ? migrateData(JSON.parse(saved)) : INITIAL_DATA;
+              setData(initData);
+              setDoc(docRef, { payload: initData }, { merge: true }).catch(() => {});
+            }
+            setIsSyncing(false);
+          }, (err) => {
+            console.error("Firestore 監聽失敗:", err);
+            clearTimeout(syncTimeoutId);
+            setIsSyncing(false);
+            setHasLoadWarning(true);
+            if (!data) {
+              const saved = safeGetItem('12wy_data');
+              setData(saved ? migrateData(JSON.parse(saved)) : INITIAL_DATA);
+            }
+          });
+
+          return () => {
+            clearTimeout(syncTimeoutId);
+            unsubscribe();
+          };
+        } catch (e) {
+          console.error("Firestore 初始化錯誤:", e);
+          clearTimeout(syncTimeoutId);
+          setIsSyncing(false);
+          if (!data) {
+            const saved = safeGetItem('12wy_data');
+            setData(saved ? migrateData(JSON.parse(saved)) : INITIAL_DATA);
+          }
+        }
       }, [user]);
 
       // 3. 雲端與本地同步保存函數
       const saveToCloud = (newData) => {
         setData(newData);
-        localStorage.setItem('12wy_data', JSON.stringify(newData));
+        safeSetItem('12wy_data', JSON.stringify(newData)); // 雙重保險
         if (auth && user) {
           const docRef = doc(db, 'artifacts', appId, 'users', user.uid, 'data', 'dashboard');
-          setDoc(docRef, { payload: newData }, { merge: true });
+          setDoc(docRef, { payload: newData }, { merge: true }).catch(e => {
+            console.warn("寫入雲端失敗 (可能無網路):", e);
+          });
         }
       };
 
@@ -336,6 +416,7 @@
           setShowAuthModal(false);
           setAuthEmail('');
           setAuthPassword('');
+          setHasLoadWarning(false); // 成功登入後清除警告
         } catch (err) {
           if (err.code === 'auth/configuration-not-found' || err.code === 'auth/operation-not-allowed') {
             setAuthError('Firebase 尚未啟用「電子郵件/密碼」驗證功能，請至控制台設定');
@@ -560,11 +641,11 @@
         reader.readAsText(file);
       };
 
-      // 載入畫面防護
-      if (isAuthChecking || isSyncing || !data) return (
+      // 載入畫面防護：只依賴 isAuthChecking，確保一旦拿到初始資料就立刻顯示
+      if (isAuthChecking || !data) return (
         <div className="min-h-screen bg-[#fafafa] flex flex-col items-center justify-center text-zinc-400 space-y-4">
            <Cloud className="w-8 h-8 animate-pulse text-zinc-300" />
-           <p className="text-sm tracking-widest uppercase">驗證與載入資料中...</p>
+           <p className="text-sm tracking-widest uppercase">載入環境中...</p>
         </div>
       );
 
@@ -605,7 +686,6 @@
           const qData = data.years[currentYear][q];
           if (!qData) return;
           
-          // 加總四季的領先指標
           for (let w = 1; w <= 12; w++) {
             const wData = qData.weeks[w];
             if (wData && wData.isEdited) {
@@ -616,7 +696,6 @@
             }
           }
 
-          // 收集四季的 12 個落後指標
           qData.lagging.forEach((goal, i) => {
              const prog = calculateProgress(goal);
              annualProgressSum += prog;
@@ -718,7 +797,6 @@
                   
                   {/* 🌟 年度總結數據儀表板 */}
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-10">
-                     {/* 年度領先指標 */}
                      <div className="bg-zinc-50 rounded-2xl p-6 flex items-center justify-between border border-zinc-100">
                         <div>
                           <h4 className="text-zinc-500 text-sm font-medium mb-1">年度總行動達成率 (Leading)</h4>
@@ -733,7 +811,6 @@
                         </div>
                      </div>
 
-                     {/* 年度落後指標 */}
                      <div className="bg-zinc-50 rounded-2xl p-6 flex items-center justify-between border border-zinc-100">
                         <div>
                           <h4 className="text-zinc-500 text-sm font-medium mb-1">年度大計畫實現率 (Lagging)</h4>
@@ -1183,12 +1260,12 @@
                           </div>
                         </div>
 
-                        {/* === 桌面版：傳統表格 === */}
-                        <div className="hidden md:block overflow-x-auto relative">
+                        {/* === 桌面版：傳統表格 (已優化捲軸與首欄凍結) === */}
+                        <div className="hidden md:block overflow-x-auto pb-4 custom-scrollbar relative">
                           <table className="w-full text-left border-collapse min-w-[1050px]">
                             <thead>
                               <tr>
-                                <th className="px-6 py-3 text-xs font-medium text-zinc-400 border-b border-zinc-100 w-[22%] sticky left-0 bg-white z-20 shadow-[1px_0_0_0_#f4f4f5]">行動項目</th>
+                                <th className="px-6 py-3 text-xs font-medium text-zinc-400 border-b border-r border-zinc-100 w-[22%] sticky left-0 bg-white z-20">行動項目</th>
                                 <th className="px-3 py-3 text-xs font-medium text-zinc-400 border-b border-zinc-100 w-[12%]">關聯目標</th>
                                 <th className="px-3 py-3 text-xs font-medium text-zinc-400 border-b border-zinc-100 text-center w-[8%]">每週目標</th>
                                 {DAYS.map(day => (
@@ -1206,8 +1283,8 @@
                                 activeWeekData.tasks.map(task => {
                                   const taskCompletion = getTaskCompletionRate(task);
                                   return (
-                                    <tr key={task.id} className="group hover:bg-zinc-50/50 transition-colors">
-                                      <td className="px-6 py-4 text-sm font-medium text-zinc-700 sticky left-0 bg-white group-hover:bg-zinc-50 transition-colors z-10 shadow-[1px_0_0_0_#f4f4f5]">
+                                    <tr key={task.id} className="group hover:bg-zinc-50 transition-colors">
+                                      <td className="px-6 py-4 text-sm font-medium text-zinc-700 sticky left-0 bg-white group-hover:bg-zinc-50 transition-colors z-10 border-r border-zinc-100">
                                         <input type="text" value={task.name} onChange={(e) => updateTaskName(task.id, e.target.value)} placeholder="任務名稱" className="bg-transparent border-b border-transparent hover:border-zinc-300 focus:border-zinc-900 focus:outline-none transition-colors w-full py-1" />
                                       </td>
                                       <td className="px-3 py-4 text-sm">
@@ -1408,6 +1485,19 @@
                   <button onClick={confirmAddYear} className="px-4 py-2 text-sm font-medium bg-zinc-900 text-white rounded-lg hover:bg-zinc-800 transition-colors shadow-sm">確認新增</button>
                 </div>
               </div>
+            </div>
+          )}
+
+          {/* 異常警告橫幅 */}
+          {hasLoadWarning && (
+            <div className="fixed bottom-0 left-0 w-full bg-amber-50 border-t border-amber-200 p-3 sm:p-4 text-xs sm:text-sm text-amber-700 flex justify-between items-start sm:items-center z-50 shadow-[0_-4px_10px_rgba(0,0,0,0.05)]">
+              <div className="flex items-start sm:items-center">
+                <span className="text-amber-500 mr-2 text-base leading-none">⚠️</span>
+                <span>網路環境受限，目前以本地模式執行。若需跨裝置同步，請嘗試點擊右上角「登入」或切換至一般瀏覽器。</span>
+              </div>
+              <button onClick={() => setHasLoadWarning(false)} className="text-amber-500 hover:text-amber-700 p-1 -m-1 ml-4 shrink-0">
+                <X className="w-4 h-4" />
+              </button>
             </div>
           )}
 
