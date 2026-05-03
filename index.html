@@ -173,6 +173,26 @@
     const QUARTERS = ['Q1', 'Q2', 'Q3', 'Q4'];
     const DAYS = ['週一', '週二', '週三', '週四', '週五', '週六', '週日'];
 
+    // 🌟 擴充至 16 種獨立顏色，確保目標極多時依然有高辨識度
+    const GOAL_COLORS = [
+      { text: 'text-orange-500', hex: '#f97316' },
+      { text: 'text-blue-500', hex: '#3b82f6' },
+      { text: 'text-emerald-500', hex: '#10b981' },
+      { text: 'text-purple-500', hex: '#a855f7' },
+      { text: 'text-rose-500', hex: '#f43f5e' },
+      { text: 'text-cyan-500', hex: '#06b6d4' },
+      { text: 'text-amber-500', hex: '#f59e0b' },
+      { text: 'text-indigo-500', hex: '#6366f1' },
+      { text: 'text-lime-500', hex: '#84cc16' },
+      { text: 'text-pink-500', hex: '#ec4899' },
+      { text: 'text-teal-500', hex: '#14b8a6' },
+      { text: 'text-fuchsia-500', hex: '#d946ef' },
+      { text: 'text-sky-500', hex: '#0ea5e9' },
+      { text: 'text-violet-500', hex: '#8b5cf6' },
+      { text: 'text-yellow-500', hex: '#eab308' },
+      { text: 'text-red-500', hex: '#ef4444' }
+    ];
+
     // --- 5. 邏輯與運算輔助函數 ---
     const calculateProgress = (goal) => {
       const start = Number(goal.start);
@@ -530,6 +550,46 @@
         setCurrentWeek(1);
       };
 
+      // 🌟 新增目標功能
+      const addLaggingGoal = () => {
+        if(!data || currentQuarter === 'annual') return;
+        const newData = { ...data };
+        const currentQData = { ...newData.years[currentYear][currentQuarter] };
+        const newGoalId = `g_${Date.now()}`;
+        const newGoal = {
+          id: newGoalId,
+          name: `目標${currentQData.lagging.length + 1}`,
+          start: 0,
+          target: 100,
+          current: 0,
+          unit: '單位',
+          reverse: false
+        };
+        currentQData.lagging = [...currentQData.lagging, newGoal];
+        newData.years[currentYear][currentQuarter] = currentQData;
+        saveToCloud(newData);
+      };
+
+      // 🌟 刪除目標與任務脫鉤防呆功能
+      const deleteLaggingGoal = (goalId) => {
+        if (!confirm('確定要刪除這個目標嗎？相關任務將會變更為「無關聯目標」。')) return;
+        if (!data || currentQuarter === 'annual') return;
+        
+        const newData = { ...data };
+        const currentQData = { ...newData.years[currentYear][currentQuarter] };
+        
+        currentQData.lagging = currentQData.lagging.filter(g => g.id !== goalId);
+        
+        Object.values(currentQData.weeks).forEach(w => {
+          if(w.tasks) {
+             w.tasks = w.tasks.map(t => t.goalId === goalId ? { ...t, goalId: '' } : t);
+          }
+        });
+        
+        newData.years[currentYear][currentQuarter] = currentQData;
+        saveToCloud(newData);
+      };
+
       const activeQuarter = (currentQuarter !== 'annual') && data?.years?.[currentYear] ? data.years[currentYear][currentQuarter] : null;
 
       const activeWeekData = useMemo(() => {
@@ -680,12 +740,6 @@
       }
       const cumulativeLeadingScore = cumTaskCount === 0 ? 0 : Math.round(cumScoreSum / cumTaskCount);
 
-      const goalColors = {
-        0: { text: 'text-orange-500', hex: '#f97316' },
-        1: { text: 'text-blue-500', hex: '#3b82f6' },
-        2: { text: 'text-emerald-500', hex: '#10b981' }
-      };
-
       // --- 專屬年度總結的資料運算 ---
       let annualLeadingScore = 0;
       let annualLaggingScore = 0;
@@ -713,12 +767,14 @@
           qData.lagging.forEach((goal, i) => {
              const prog = calculateProgress(goal);
              annualProgressSum += prog;
-             annualGoalsList.push({ ...goal, quarter: q, progress: prog, colorConfig: goalColors[i % 3] });
+             // 🌟 使用 annualGoalsList.length 確保跨季度的目標顏色依然不重複
+             annualGoalsList.push({ ...goal, quarter: q, progress: prog, colorConfig: GOAL_COLORS[annualGoalsList.length % GOAL_COLORS.length] });
           });
         });
 
         annualLeadingScore = annualTaskCountForUI === 0 ? 0 : Math.round(annualTaskScoreSum / annualTaskCountForUI);
-        annualLaggingScore = Math.round(annualProgressSum / 12);
+        // 🌟 改為動態除以總目標數量
+        annualLaggingScore = annualGoalsList.length > 0 ? Math.round(annualProgressSum / annualGoalsList.length) : 0;
       }
 
       return (
@@ -827,7 +883,7 @@
                         <div>
                           <h4 className="text-zinc-500 text-sm font-medium mb-1">年度大計畫實現率 (Lagging)</h4>
                           <p className={`text-4xl font-light ${getThresholdColorText(annualLaggingScore)}`}>{annualLaggingScore}%</p>
-                          <p className="text-xs text-zinc-400 mt-2">12 項核心目標的平均達成度</p>
+                          <p className="text-xs text-zinc-400 mt-2">{annualGoalsList.length} 項核心目標的平均達成度</p>
                         </div>
                         <div className="w-20 h-20 relative shrink-0">
                           <svg viewBox="0 0 36 36" className="w-full h-full transform -rotate-90">
@@ -838,10 +894,10 @@
                      </div>
                   </div>
 
-                  {/* 🌟 12項核心目標明細 */}
+                  {/* 🌟 12項核心目標明細 (動態數量) */}
                   <div className="mb-10 space-y-6">
                     <h3 className="font-semibold text-zinc-700 text-lg flex items-center border-b border-zinc-100 pb-3">
-                      <Target className="w-5 h-5 mr-2 text-zinc-400"/> 全年 12 項大計畫回顧
+                      <Target className="w-5 h-5 mr-2 text-zinc-400"/> 全年 {annualGoalsList.length} 項大計畫回顧
                     </h3>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       {annualGoalsList.map((g, idx) => (
@@ -960,13 +1016,20 @@
                 
                 {/* 落後指標 */}
                 <section>
-                  <h2 className="text-sm font-semibold text-zinc-400 mb-4 tracking-wider uppercase flex items-center">
-                    Lagging Indicators ({currentQuarter}) <span className="ml-2 w-full h-px bg-zinc-200"></span>
-                  </h2>
+                  <div className="flex items-center justify-between mb-4">
+                    <h2 className="text-sm font-semibold text-zinc-400 tracking-wider uppercase flex items-center flex-1">
+                      Lagging Indicators ({currentQuarter}) <span className="ml-2 w-full h-px bg-zinc-200"></span>
+                    </h2>
+                    {/* 🌟 新增目標按鈕 */}
+                    <button onClick={addLaggingGoal} className="ml-4 shrink-0 flex items-center space-x-1 text-xs font-medium text-zinc-500 hover:text-zinc-900 bg-white border border-zinc-200 hover:border-zinc-300 px-2 py-1.5 rounded-md shadow-sm transition-colors">
+                      <Plus className="w-3 h-3" />
+                      <span className="hidden sm:inline">新增目標</span>
+                    </button>
+                  </div>
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-4 sm:gap-6">
                     {activeQuarter.lagging.map((goal, index) => {
                       const progress = calculateProgress(goal);
-                      const colorConfig = goalColors[index % 3];
+                      const colorConfig = GOAL_COLORS[index % GOAL_COLORS.length];
                       
                       const goalTasks = activeWeekData.tasks.filter(t => t.goalId === goal.id);
                       const goalTaskScores = goalTasks.map(t => getTaskCompletionRate(t));
@@ -975,7 +1038,14 @@
                       return (
                         <div key={goal.id} className="bg-white p-5 sm:p-6 rounded-2xl border border-zinc-200 shadow-[0_2px_10px_-4px_rgba(0,0,0,0.05)] flex flex-col relative overflow-hidden group">
                           
-                          <div className="flex flex-col mb-5 space-y-3">
+                          {/* 🌟 刪除目標按鈕 */}
+                          <div className="absolute top-4 right-4 opacity-0 sm:group-hover:opacity-100 transition-opacity z-10">
+                            <button onClick={() => deleteLaggingGoal(goal.id)} className="text-zinc-300 hover:text-rose-500 p-1 bg-white rounded-full shadow-sm border border-zinc-100" title="刪除目標">
+                               <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
+
+                          <div className="flex flex-col mb-5 space-y-3 pr-8">
                             <input 
                               type="text"
                               value={goal.name}
@@ -1128,7 +1198,7 @@
                           <line x1="0" y1="100" x2="100" y2="0" stroke="#f4f4f5" strokeWidth="1" strokeDasharray="4 4" />
                           
                           {activeQuarter.lagging.map((goal, index) => {
-                            const hexColor = goalColors[index % 3].hex;
+                            const hexColor = GOAL_COLORS[index % GOAL_COLORS.length].hex;
                             
                             const points = Array.from({length: targetW + 1}).map((_, i) => {
                               const weekNum = i; // 0 到 targetW
