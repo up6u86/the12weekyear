@@ -233,12 +233,12 @@
       return 100;
     };
 
-    // 🌟 深度資料救援與自動升級腳本
+    // 🌟 終極資料救援與自動升級腳本 (修復空殼覆蓋問題)
     const migrateData = (parsed) => {
       if (!parsed) return INITIAL_DATA;
       let migrated = { ...parsed };
       
-      // 【深度資料救援 1】: 最早期的單季扁平版本 (找回消失的資料關鍵)
+      // 【深度資料救援 1】: 最早期的單季扁平版本
       if (migrated.lagging && !migrated.Q1 && !migrated.years) {
         migrated.Q1 = {
           lagging: migrated.lagging,
@@ -249,18 +249,32 @@
         delete migrated.lagging; delete migrated.history; delete migrated.weeks; delete migrated.review;
       }
 
-      // 【深度資料救援 2】: 轉換成多年度結構
+      // 【深度資料救援 2】: 強制找回被隱藏的 Q1~Q4 舊資料
+      // 因為 Firebase 雲端合併 (merge: true) 的關係，舊資料 Q1~Q4 其實還留在根目錄！
+      // 只要根目錄還有 Q1，我們就強制把它搬進 2026 年裡面覆蓋掉空殼。
+      if (migrated.Q1 || migrated.Q2 || migrated.Q3 || migrated.Q4) {
+        if (!migrated.years) migrated.years = {};
+        migrated.years["2026"] = {
+          // 優先採用根目錄的真實資料，若無才使用原本的空殼或新建
+          Q1: migrated.Q1 || migrated.years["2026"]?.Q1 || createEmptyQuarter(),
+          Q2: migrated.Q2 || migrated.years["2026"]?.Q2 || createEmptyQuarter(),
+          Q3: migrated.Q3 || migrated.years["2026"]?.Q3 || createEmptyQuarter(),
+          Q4: migrated.Q4 || migrated.years["2026"]?.Q4 || createEmptyQuarter(),
+          annualReview: migrated.annualReview || migrated.years["2026"]?.annualReview || ''
+        };
+        // 搬移完畢後，把根目錄的舊資料刪除，避免下次又重複搬移
+        delete migrated.Q1; delete migrated.Q2; delete migrated.Q3; delete migrated.Q4; delete migrated.annualReview;
+      }
+
+      // 確保多年度結構完整
       if (!migrated.years) {
         migrated.years = {
           "2026": {
-            Q1: migrated.Q1 || createEmptyQuarter(),
-            Q2: migrated.Q2 || createEmptyQuarter(),
-            Q3: migrated.Q3 || createEmptyQuarter(),
-            Q4: migrated.Q4 || createEmptyQuarter(),
-            annualReview: migrated.annualReview || ''
+            Q1: createEmptyQuarter(), Q2: createEmptyQuarter(),
+            Q3: createEmptyQuarter(), Q4: createEmptyQuarter(),
+            annualReview: ''
           }
         };
-        delete migrated.Q1; delete migrated.Q2; delete migrated.Q3; delete migrated.Q4; delete migrated.annualReview;
       }
 
       // 遞迴確保每一年的每一季都具備正確的屬性 (防呆)
