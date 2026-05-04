@@ -113,7 +113,9 @@
     const TrendingUp = (p) => <Icon {...p}><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/></Icon>;
     const Activity = (p) => <Icon {...p}><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></Icon>;
     const ListTodo = (p) => <Icon {...p}><rect x="3" y="5" width="6" height="6" rx="1"/><path d="m3 17 2 2 4-4"/><path d="M13 6h8"/><path d="M13 12h8"/><path d="M13 18h8"/></Icon>;
+    const FileText = (p) => <Icon {...p}><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/></Icon>;
     const X = (p) => <Icon {...p}><path d="M18 6 6 18"/><path d="m6 6 12 12"/></Icon>;
+    const UploadIcon = (p) => <Icon {...p}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" x2="12" y1="3" y2="15"/></Icon>;
 
     // --- 4. 建立空白週期的輔助函數 & 初始資料 ---
     const createEmptyQuarter = () => ({
@@ -138,16 +140,6 @@
           annualReview: ''
         }
       }
-    };
-
-    // 保留預設的第一週範例，避免空白無聊
-    INITIAL_DATA.years["2026"].Q1.weeks[1] = {
-      isEdited: true,
-      tasks: [
-        { id: 't1', name: '', goalId: '', targetDays: 7, note: '', days: Array(7).fill(false) },
-        { id: 't2', name: '', goalId: '', targetDays: 7, note: '', days: Array(7).fill(false) },
-        { id: 't3', name: '', goalId: '', targetDays: 7, note: '', days: Array(7).fill(false) }
-      ]
     };
 
     const QUARTERS = ['Q1', 'Q2', 'Q3', 'Q4'];
@@ -218,115 +210,102 @@
     };
 
     // 🌟 終極資料縫合演算法 (Deep Merge Rescue)
-    // 會潛入本地與雲端所有資料，只要發現有「真實輸入過內容」的，絕對優先保留！
-    const scoreGoal = (g) => {
-      if (!g) return -1;
-      let s = 0;
-      if (g.name && !g.name.includes('目標') && !g.name.includes('主要目標')) s += 10;
-      if (g.unit && g.unit !== '單位') s += 2;
-      if (g.target !== 100 && g.target !== 0) s += 2;
-      if (g.start !== 0) s += 2;
-      if (g.current !== 0) s += 5;
-      return s;
-    };
-
-    const scoreWeek = (wObj) => {
-      if (!wObj || !wObj.tasks) return -1;
-      return wObj.tasks.reduce((acc, t) => {
-          let s = 0;
-          if (t.name && t.name !== '新任務' && !t.name.includes('晨跑') && !t.name.includes('零食')) s += 10;
-          if (t.note) s += 5;
-          if (t.goalId) s += 2;
-          s += (t.days || []).filter(Boolean).length * 5; 
-          if (t.targetDays !== 7) s += 2;
-          return acc + s;
-      }, 0);
-    };
-
     const masterMerge = (dataA, dataB) => {
-      const merged = JSON.parse(JSON.stringify(INITIAL_DATA)); // 以標準乾淨結構為底
-      
-      // 1. 救援 願景 Visions (抓取長度最長的)
-      const vCands = [
-          INITIAL_DATA.visions,
-          dataA?.visions, dataB?.visions, 
-          dataA?.years?.["2026"]?.visions, dataB?.years?.["2026"]?.visions
-      ].filter(Array.isArray);
-      let bestV = [];
-      vCands.forEach(v => { if (v.join('').length > bestV.join('').length) bestV = [...v]; });
-      merged.visions = bestV;
+      const merged = JSON.parse(JSON.stringify(INITIAL_DATA)); 
 
-      // 1.5 救援 願景標題 VisionTitle
-      const vtCands = [INITIAL_DATA.visionTitle, dataA?.visionTitle, dataB?.visionTitle].filter(Boolean);
-      let bestVt = '';
-      vtCands.forEach(v => { if (v.length > bestVt.length) bestVt = v; });
-      merged.visionTitle = bestVt;
-      
-      merged.targetDate = dataB?.targetDate || dataA?.targetDate || INITIAL_DATA.targetDate;
+      const mergeText = (t1, t2) => {
+          const s1 = (t1 || '').trim();
+          const s2 = (t2 || '').trim();
+          if (!s1) return s2;
+          if (!s2) return s1;
+          if (s1 === s2 || s1.includes(s2)) return s1;
+          if (s2.includes(s1)) return s2;
+          return s1 + '\n\n' + s2;
+      };
 
-      // 2. 救援 2026 年度總結 Annual Review
-      const aCands = [dataA?.annualReview, dataB?.annualReview, dataA?.years?.["2026"]?.annualReview, dataB?.years?.["2026"]?.annualReview].filter(Boolean);
-      let bestA = '';
-      aCands.forEach(a => { if (a.length > bestA.length) bestA = a; });
-      merged.years["2026"].annualReview = bestA;
+      // 1. 救援 願景 Visions
+      const allVisions = new Set();
+      const extractVisions = (d) => {
+          if (Array.isArray(d?.visions)) d.visions.forEach(v => { if (v && v.trim()) allVisions.add(v.trim()); });
+      };
+      extractVisions(dataA); extractVisions(dataB);
+      merged.visions = Array.from(allVisions);
 
-      // 3. 救援 各季 Q1 ~ Q4 (深度比對)
-      ['Q1', 'Q2', 'Q3', 'Q4'].forEach(qName => {
-          const qCands = [
-              INITIAL_DATA.years["2026"][qName],
-              dataA?.[qName], dataB?.[qName], 
-              dataA?.years?.["2026"]?.[qName], dataB?.years?.["2026"]?.[qName]
-          ].filter(Boolean);
+      // Vision Title & Target Date
+      merged.visionTitle = mergeText(dataA?.visionTitle, dataB?.visionTitle) || '';
+      merged.targetDate = dataB?.targetDate || dataA?.targetDate || '2026-12-31';
+
+      // 2. 救援 跨年份資料
+      const allYears = new Set([...Object.keys(dataA?.years || {}), ...Object.keys(dataB?.years || {}), "2026"]);
+
+      allYears.forEach(y => {
+          if (!merged.years[y]) merged.years[y] = { Q1: createEmptyQuarter(), Q2: createEmptyQuarter(), Q3: createEmptyQuarter(), Q4: createEmptyQuarter(), annualReview: '' };
           
-          const bestQ = createEmptyQuarter();
-
-          qCands.forEach(c => {
-              // 回顧 Review
-              if (c.review && c.review.length > (bestQ.review || '').length) bestQ.review = c.review;
+          ['Q1', 'Q2', 'Q3', 'Q4'].forEach(q => {
+              const qA = dataA?.years?.[y]?.[q] || (y === "2026" ? dataA?.[q] : null);
+              const qB = dataB?.years?.[y]?.[q] || (y === "2026" ? dataB?.[q] : null);
               
-              // 落後指標 Lagging
-              if (c.lagging && Array.isArray(c.lagging)) {
-                  c.lagging.forEach((g, i) => {
-                      if (!bestQ.lagging[i]) {
-                          bestQ.lagging[i] = { ...g };
-                      } else {
-                          const s1 = scoreGoal(g);
-                          const s2 = scoreGoal(bestQ.lagging[i]);
-                          if (s1 > s2) bestQ.lagging[i] = { ...g };
-                          else if (s1 === s2 && g.current > bestQ.lagging[i].current) bestQ.lagging[i].current = g.current;
-                      }
-                  });
-              }
+              const mergedQ = createEmptyQuarter();
+              
+              // Review
+              mergedQ.review = mergeText(qA?.review, qB?.review);
 
-              // 歷史 History
-              if (c.history) {
-                  Object.keys(c.history).forEach(w => {
-                      bestQ.history[w] = { ...(bestQ.history[w] || {}), ...c.history[w] };
-                  });
-              }
+              // Lagging
+              const mapL = new Map();
+              const scoreL = (g) => {
+                  let s = 0;
+                  if (g.name && !g.name.includes('目標')) s += 10;
+                  if (g.current !== 0) s += 5;
+                  if (g.target !== 100 && g.target !== 0) s += 5;
+                  if (g.start !== 0) s += 5;
+                  return s;
+              };
+              [...(qA?.lagging || []), ...(qB?.lagging || [])].forEach(g => {
+                  const key = g.id || g.name;
+                  if (!mapL.has(key)) mapL.set(key, g);
+                  else if (scoreL(g) > scoreL(mapL.get(key))) mapL.set(key, g);
+              });
+              mergedQ.lagging = Array.from(mapL.values());
+              if(mergedQ.lagging.length === 0) mergedQ.lagging = createEmptyQuarter().lagging;
 
-              // 任務 Weeks (一週一週深入比對)
-              if (c.weeks) {
-                  Object.keys(c.weeks).forEach(w => {
-                      const exW = bestQ.weeks[w];
-                      const cdW = c.weeks[w];
-                      if (!exW) {
-                          bestQ.weeks[w] = JSON.parse(JSON.stringify(cdW));
-                      } else if (scoreWeek(cdW) > scoreWeek(exW)) {
-                          bestQ.weeks[w] = JSON.parse(JSON.stringify(cdW));
-                      }
-                  });
-              }
+              // History
+              mergedQ.history = { ...(qA?.history || {}), ...(qB?.history || {}) };
+
+              // Weeks
+              const allW = new Set([...Object.keys(qA?.weeks || {}), ...Object.keys(qB?.weeks || {})]);
+              allW.forEach(w => {
+                  const wA = qA?.weeks?.[w];
+                  const wB = qB?.weeks?.[w];
+                  if (wA && !wB) mergedQ.weeks[w] = wA;
+                  else if (!wA && wB) mergedQ.weeks[w] = wB;
+                  else if (wA && wB) {
+                      const mapT = new Map();
+                      const scoreT = (t) => {
+                          let s = 0;
+                          if (t.name && t.name !== '新任務') s += 10;
+                          if (t.note) s += 5;
+                          if (t.goalId) s += 2;
+                          s += (t.days || []).filter(Boolean).length;
+                          if (t.targetDays !== 7) s += 2;
+                          return s;
+                      };
+                      [...(wA.tasks || []), ...(wB.tasks || [])].forEach(t => {
+                          if (!mapT.has(t.id)) mapT.set(t.id, t);
+                          else if (scoreT(t) > scoreT(mapT.get(t.id))) mapT.set(t.id, t);
+                      });
+                      mergedQ.weeks[w] = {
+                          isEdited: wA.isEdited || wB.isEdited,
+                          tasks: Array.from(mapT.values())
+                      };
+                  }
+              });
+              merged.years[y][q] = mergedQ;
           });
-          merged.years["2026"][qName] = bestQ;
-      });
 
-      // 4. 確保其它年份資料不遺失
-      const otherYears = new Set([...Object.keys(dataA?.years || {}), ...Object.keys(dataB?.years || {})]);
-      otherYears.forEach(y => {
-          if (y !== "2026") {
-              merged.years[y] = dataB?.years?.[y] || dataA?.years?.[y];
-          }
+          // Annual Review
+          const annA = dataA?.years?.[y]?.annualReview || (y === "2026" ? dataA?.annualReview : '');
+          const annB = dataB?.years?.[y]?.annualReview || (y === "2026" ? dataB?.annualReview : '');
+          merged.years[y].annualReview = mergeText(annA, annB);
       });
 
       return merged;
@@ -517,6 +496,32 @@
         try { await signInAnonymously(auth); } catch (error) { console.error(error); }
       };
 
+      // 🌟 手動備份資料 (JSON 格式) - 緊急資料復原用
+      const exportJSON = () => {
+        const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(data));
+        const downloadAnchorNode = document.createElement('a');
+        downloadAnchorNode.setAttribute("href", dataStr);
+        downloadAnchorNode.setAttribute("download", `12WeekYear_Backup_${currentYear}.json`);
+        document.body.appendChild(downloadAnchorNode);
+        downloadAnchorNode.click(); downloadAnchorNode.remove();
+      };
+
+      // 🌟 手動匯入資料 (JSON 格式) - 緊急資料復原用
+      const importJSON = (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = (event) => {
+          try {
+            const imported = JSON.parse(event.target.result);
+            // 將匯入的資料與現有資料進行縫合
+            if (imported.years || imported.lagging) saveToCloud(masterMerge(data, imported));
+            else alert('檔案格式不正確');
+          } catch (e) { alert('解析 JSON 失敗'); }
+        };
+        reader.readAsText(file);
+      };
+
       // 🌟 匯出為 A4 直立 PDF (鎖定 WindowWidth 確保完美裁切)
       const exportPDF = () => {
         const element = document.getElementById('pdf-export-area');
@@ -526,7 +531,7 @@
           image:        { type: 'jpeg', quality: 0.98 },
           html2canvas:  { scale: 2, useCORS: true, windowWidth: 1200, backgroundColor: '#fafafa' },
           jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' },
-          pagebreak:    { mode: 'auto' }
+          pagebreak:    { mode: 'css' }
         };
         window.html2pdf().set(opt).from(element).save();
       };
@@ -818,7 +823,7 @@
               </div>
             </div>
             
-            {/* 🌟 頂部右側按鈕群 (登入 / 備份PDF) */}
+            {/* 🌟 頂部右側按鈕群 */}
             <div className="flex flex-col items-end space-y-3 shrink-0" data-html2canvas-ignore="true">
               <div className="flex items-center space-x-3 text-xs sm:text-sm">
                 <span className="text-xs font-normal text-zinc-400 bg-zinc-100 px-2 py-1 rounded">今日 {todayStr}</span>
@@ -847,11 +852,22 @@
                   </button>
                 )}
               </div>
-              {/* 🌟 備份按鍵 (僅桌面顯示，位於登出/登入正下方) */}
-              <button onClick={exportPDF} className="hidden sm:flex items-center space-x-1.5 text-zinc-500 hover:text-zinc-900 transition-colors text-xs bg-white border border-zinc-200 px-3 py-1.5 rounded-lg shadow-sm">
-                <Download className="w-3.5 h-3.5" />
-                <span className="font-medium">備份 (下載 PDF)</span>
-              </button>
+              
+              {/* 🌟 匯入與備份按鈕列 (桌面顯示) */}
+              <div className="hidden sm:flex items-center space-x-2">
+                <label className="cursor-pointer text-xs text-zinc-400 hover:text-zinc-700 transition-colors flex items-center px-1">
+                   <UploadIcon className="w-3.5 h-3.5 mr-1" /> 匯入 JSON
+                   <input type="file" accept=".json" onChange={importJSON} className="hidden" />
+                </label>
+                <span className="text-zinc-300">|</span>
+                <button onClick={exportJSON} className="text-xs text-zinc-400 hover:text-zinc-700 transition-colors flex items-center px-1">
+                   <Download className="w-3.5 h-3.5 mr-1" /> 匯出 JSON
+                </button>
+                <button onClick={exportPDF} className="flex items-center space-x-1.5 text-zinc-600 hover:text-zinc-900 transition-colors text-xs bg-white border border-zinc-200 px-3 py-1.5 rounded-lg shadow-sm ml-2">
+                  <FileText className="w-3.5 h-3.5" />
+                  <span className="font-medium">下載 PDF</span>
+                </button>
+              </div>
             </div>
           </header>
 
@@ -1482,7 +1498,10 @@
                   <div>
                     <label className="block text-xs font-medium text-zinc-500 mb-1">電子信箱 Email</label>
                     <input 
-                      type="email" required value={authEmail} onChange={(e) => setAuthEmail(e.target.value)}
+                      type="email" 
+                      required
+                      value={authEmail}
+                      onChange={(e) => setAuthEmail(e.target.value)}
                       className="w-full px-3 py-2 border border-zinc-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-zinc-900 text-sm"
                       placeholder="your@email.com"
                     />
@@ -1491,18 +1510,33 @@
                   <div>
                     <label className="block text-xs font-medium text-zinc-500 mb-1">密碼 Password</label>
                     <input 
-                      type="password" required minLength={6} value={authPassword} onChange={(e) => setAuthPassword(e.target.value)}
+                      type="password" 
+                      required
+                      minLength={6}
+                      value={authPassword}
+                      onChange={(e) => setAuthPassword(e.target.value)}
                       className="w-full px-3 py-2 border border-zinc-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-zinc-900 text-sm"
                       placeholder="至少 6 個字元"
                     />
                   </div>
 
-                  <button type="submit" disabled={authLoading} className="w-full py-2.5 bg-zinc-900 text-white rounded-lg text-sm font-medium hover:bg-zinc-800 transition-colors disabled:opacity-50 mt-4">
+                  <button 
+                    type="submit" 
+                    disabled={authLoading}
+                    className="w-full py-2.5 bg-zinc-900 text-white rounded-lg text-sm font-medium hover:bg-zinc-800 transition-colors disabled:opacity-50 mt-4"
+                  >
                     {authLoading ? '處理中...' : (authMode === 'login' ? '登入帳號' : '註冊並綁定當前資料')}
                   </button>
 
                   <div className="text-center mt-4">
-                    <button type="button" onClick={() => { setAuthMode(authMode === 'login' ? 'register' : 'login'); setAuthError(''); }} className="text-xs text-zinc-500 hover:text-zinc-900 transition-colors underline underline-offset-2">
+                    <button 
+                      type="button"
+                      onClick={() => {
+                        setAuthMode(authMode === 'login' ? 'register' : 'login');
+                        setAuthError('');
+                      }}
+                      className="text-xs text-zinc-500 hover:text-zinc-900 transition-colors underline underline-offset-2"
+                    >
                       {authMode === 'login' ? '還沒有帳號？點此註冊' : '已經有帳號了？點此登入'}
                     </button>
                   </div>
