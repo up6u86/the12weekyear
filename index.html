@@ -81,20 +81,13 @@
 
     // --- 安全的 LocalStorage 操作 (防護 LINE/無痕模式崩潰) ---
     const safeGetItem = (key) => {
-      try {
-        return localStorage.getItem(key);
-      } catch (e) {
-        console.warn("LocalStorage 讀取失敗:", e);
-        return null;
-      }
+      try { return localStorage.getItem(key); } 
+      catch (e) { console.warn("LocalStorage 讀取失敗:", e); return null; }
     };
 
     const safeSetItem = (key, value) => {
-      try {
-        localStorage.setItem(key, value);
-      } catch (e) {
-        console.warn("LocalStorage 寫入失敗:", e);
-      }
+      try { localStorage.setItem(key, value); } 
+      catch (e) { console.warn("LocalStorage 寫入失敗:", e); }
     };
 
     // --- 2. React Hooks ---
@@ -199,17 +192,12 @@
       const target = Number(goal.target);
       const current = Number(goal.current);
 
-      // 防呆：如果起點等於目標
       if (start === target) return current === target ? 100 : 0;
-
-      // 自動判斷是否為「遞減型目標」（例如：減重、還款）
       if (start > target) {
         if (current >= start) return 0;
         if (current <= target) return 100;
         return ((start - current) / (start - target)) * 100;
-      } 
-      // 正常的「遞增型目標」（例如：收入、分數）
-      else {
+      } else {
         if (current <= start) return 0;
         if (current >= target) return 100;
         return ((current - start) / (target - start)) * 100;
@@ -245,12 +233,73 @@
       return 100;
     };
 
+    // 🌟 深度資料救援與自動升級腳本
+    const migrateData = (parsed) => {
+      if (!parsed) return INITIAL_DATA;
+      let migrated = { ...parsed };
+      
+      // 【深度資料救援 1】: 最早期的單季扁平版本 (找回消失的資料關鍵)
+      if (migrated.lagging && !migrated.Q1 && !migrated.years) {
+        migrated.Q1 = {
+          lagging: migrated.lagging,
+          history: migrated.history || {},
+          weeks: migrated.weeks || {},
+          review: migrated.review || ''
+        };
+        delete migrated.lagging; delete migrated.history; delete migrated.weeks; delete migrated.review;
+      }
+
+      // 【深度資料救援 2】: 轉換成多年度結構
+      if (!migrated.years) {
+        migrated.years = {
+          "2026": {
+            Q1: migrated.Q1 || createEmptyQuarter(),
+            Q2: migrated.Q2 || createEmptyQuarter(),
+            Q3: migrated.Q3 || createEmptyQuarter(),
+            Q4: migrated.Q4 || createEmptyQuarter(),
+            annualReview: migrated.annualReview || ''
+          }
+        };
+        delete migrated.Q1; delete migrated.Q2; delete migrated.Q3; delete migrated.Q4; delete migrated.annualReview;
+      }
+
+      // 遞迴確保每一年的每一季都具備正確的屬性 (防呆)
+      Object.keys(migrated.years).forEach(y => {
+        ['Q1', 'Q2', 'Q3', 'Q4'].forEach(q => {
+          if (!migrated.years[y][q]) {
+            migrated.years[y][q] = createEmptyQuarter();
+          } else {
+            if (!migrated.years[y][q].lagging) migrated.years[y][q].lagging = createEmptyQuarter().lagging;
+            if (!migrated.years[y][q].history) migrated.years[y][q].history = {};
+            if (!migrated.years[y][q].weeks) migrated.years[y][q].weeks = {};
+            if (migrated.years[y][q].review === undefined) migrated.years[y][q].review = '';
+          }
+        });
+        if (migrated.years[y].annualReview === undefined) migrated.years[y].annualReview = '';
+      });
+
+      // 補齊根目錄屬性
+      if (migrated.visionTitle === undefined) migrated.visionTitle = INITIAL_DATA.visionTitle;
+      if (migrated.visions === undefined) migrated.visions = [...INITIAL_DATA.visions];
+      if (migrated.targetDate === undefined) migrated.targetDate = INITIAL_DATA.targetDate;
+      
+      return migrated;
+    };
+
     // --- 6. 應用主元件 ---
     function App() {
       const [user, setUser] = useState(null);
-      const [data, setData] = useState(null);
       
-      // 🌟 新增：從 localStorage 讀取最後一次瀏覽的進度
+      // 🌟 改變讀取策略：一開始就同步解析並載入畫面，徹底消滅 Loading 卡死問題
+      const [data, setData] = useState(() => {
+        const saved = safeGetItem('12wy_data');
+        if (saved) {
+           try { return migrateData(JSON.parse(saved)); } 
+           catch (e) { return INITIAL_DATA; }
+        }
+        return INITIAL_DATA;
+      });
+      
       const [currentYear, setCurrentYear] = useState(() => safeGetItem('12wy_year') || '2026');
       const [currentQuarter, setCurrentQuarter] = useState(() => safeGetItem('12wy_quarter') || 'Q1');
       const [currentWeek, setCurrentWeek] = useState(() => {
@@ -258,8 +307,7 @@
         return saved === 'review' ? 'review' : (saved ? parseInt(saved, 10) : 1);
       });
       
-      // 優化 Auth 讀取狀態
-      const [isAuthChecking, setIsAuthChecking] = useState(true);
+      // 不再使用 isAuthChecking 阻擋畫面
       const [isSyncing, setIsSyncing] = useState(false);
       const [hasLoadWarning, setHasLoadWarning] = useState(false); 
       
@@ -290,7 +338,7 @@
       useEffect(() => { safeSetItem('12wy_quarter', currentQuarter); }, [currentQuarter]);
       useEffect(() => { safeSetItem('12wy_week', currentWeek); }, [currentWeek]);
 
-      // 🌟 新增：完美修復 textarea 重新整理後過高/變形的問題
+      // 完美修復 textarea 重新整理後變形的問題
       useEffect(() => {
         const timer = setTimeout(() => {
           const textareas = document.querySelectorAll('.vision-textarea');
@@ -302,53 +350,9 @@
         return () => clearTimeout(timer);
       }, [data?.visions, currentQuarter, currentWeek, currentYear]);
 
-      const migrateData = (parsed) => {
-        let migrated = { ...parsed };
-        
-        if (!migrated.years) {
-          migrated.years = {
-            "2026": {
-              Q1: migrated.Q1 || createEmptyQuarter(),
-              Q2: migrated.Q2 || createEmptyQuarter(),
-              Q3: migrated.Q3 || createEmptyQuarter(),
-              Q4: migrated.Q4 || createEmptyQuarter(),
-              annualReview: ''
-            }
-          };
-          delete migrated.Q1; delete migrated.Q2; delete migrated.Q3; delete migrated.Q4;
-        }
-
-        Object.keys(migrated.years).forEach(y => {
-          ['Q1', 'Q2', 'Q3', 'Q4'].forEach(q => {
-            if (!migrated.years[y][q]) migrated.years[y][q] = createEmptyQuarter();
-            if (migrated.years[y][q].review === undefined) migrated.years[y][q].review = '';
-          });
-          if (migrated.years[y].annualReview === undefined) migrated.years[y].annualReview = '';
-        });
-
-        if (migrated.visionTitle === undefined) migrated.visionTitle = INITIAL_DATA.visionTitle;
-        if (migrated.visions === undefined) migrated.visions = [...INITIAL_DATA.visions];
-        if (migrated.targetDate === undefined) migrated.targetDate = INITIAL_DATA.targetDate;
-        
-        return migrated;
-      };
-
       // 1. 初始化 Auth 與 Persistence
       useEffect(() => {
-        const loadLocalData = () => {
-          const saved = safeGetItem('12wy_data');
-          if (saved) {
-             try { setData(migrateData(JSON.parse(saved))); } 
-             catch (e) { setData(INITIAL_DATA); }
-          } else { setData(INITIAL_DATA); }
-        };
-
-        if (!auth) {
-          loadLocalData();
-          setIsAuthChecking(false);
-          return;
-        }
-
+        if (!auth) return;
         try {
           setPersistence(auth, browserLocalPersistence).catch((error) => {
             console.warn("無法啟用本地持久化:", error);
@@ -356,11 +360,7 @@
           }).finally(() => {
             const unsubscribe = onAuthStateChanged(auth, (u) => {
               setUser(u);
-              if (u) {
-                setIsAuthChecking(false);
-              } else {
-                loadLocalData();
-                setIsAuthChecking(false);
+              if (!u) {
                 signInAnonymously(auth).catch((error) => {
                   console.warn("匿名登入失敗/受限:", error);
                   setHasLoadWarning(true);
@@ -371,8 +371,6 @@
           });
         } catch (e) {
           console.error("Auth 初始化錯誤:", e);
-          loadLocalData();
-          setIsAuthChecking(false);
           setHasLoadWarning(true);
         }
       }, []);
@@ -385,10 +383,7 @@
         let syncTimeoutId = setTimeout(() => {
           if (isSyncing) {
             setIsSyncing(false);
-            if (!data) {
-              const saved = safeGetItem('12wy_data');
-              setData(saved ? migrateData(JSON.parse(saved)) : INITIAL_DATA);
-            }
+            setHasLoadWarning(true);
           }
         }, 5000);
 
@@ -397,12 +392,11 @@
           const unsubscribe = onSnapshot(docRef, (docSnap) => {
             clearTimeout(syncTimeoutId);
             if (docSnap.exists() && !docSnap.metadata.hasPendingWrites) {
-              setData(migrateData(docSnap.data().payload));
+              const cloudData = migrateData(docSnap.data().payload);
+              setData(cloudData);
+              safeSetItem('12wy_data', JSON.stringify(cloudData));
             } else if (!docSnap.exists()) {
-              const saved = safeGetItem('12wy_data');
-              const initData = saved ? migrateData(JSON.parse(saved)) : INITIAL_DATA;
-              setData(initData);
-              setDoc(docRef, { payload: initData }, { merge: true }).catch(() => {});
+              setDoc(docRef, { payload: data }, { merge: true }).catch(() => {});
             }
             setIsSyncing(false);
           }, (err) => {
@@ -410,10 +404,6 @@
             clearTimeout(syncTimeoutId);
             setIsSyncing(false);
             setHasLoadWarning(true);
-            if (!data) {
-              const saved = safeGetItem('12wy_data');
-              setData(saved ? migrateData(JSON.parse(saved)) : INITIAL_DATA);
-            }
           });
 
           return () => {
@@ -424,10 +414,7 @@
           console.error("Firestore 初始化錯誤:", e);
           clearTimeout(syncTimeoutId);
           setIsSyncing(false);
-          if (!data) {
-            const saved = safeGetItem('12wy_data');
-            setData(saved ? migrateData(JSON.parse(saved)) : INITIAL_DATA);
-          }
+          setHasLoadWarning(true);
         }
       }, [user]);
 
@@ -480,7 +467,6 @@
         try { await signInAnonymously(auth); } catch (error) { console.error(error); }
       };
 
-      // 🌟 新增：匯出 PDF 功能
       const exportPDF = () => {
         const element = document.getElementById('pdf-export-area');
         const opt = {
@@ -550,7 +536,6 @@
         setCurrentWeek(1);
       };
 
-      // 🌟 新增目標功能
       const addLaggingGoal = () => {
         if(!data || currentQuarter === 'annual') return;
         const newData = { ...data };
@@ -570,7 +555,6 @@
         saveToCloud(newData);
       };
 
-      // 🌟 刪除目標與任務脫鉤防呆功能
       const deleteLaggingGoal = (goalId) => {
         if (!confirm('確定要刪除這個目標嗎？相關任務將會變更為「無關聯目標」。')) return;
         if (!data || currentQuarter === 'annual') return;
@@ -716,12 +700,7 @@
         saveToCloud(newData);
       };
 
-      if (isAuthChecking || !data) return (
-        <div className="min-h-screen bg-[#fafafa] flex flex-col items-center justify-center text-zinc-400 space-y-4">
-           <Cloud className="w-8 h-8 animate-pulse text-zinc-300" />
-           <p className="text-sm tracking-widest uppercase">載入環境中...</p>
-        </div>
-      );
+      if (!data) return null; // 透過 Optimistic UI 完全不阻擋渲染
 
       // --- 領先指標運算 ---
       const taskScores = activeWeekData.tasks.map(t => getTaskCompletionRate(t));
@@ -767,13 +746,11 @@
           qData.lagging.forEach((goal, i) => {
              const prog = calculateProgress(goal);
              annualProgressSum += prog;
-             // 🌟 使用 annualGoalsList.length 確保跨季度的目標顏色依然不重複
              annualGoalsList.push({ ...goal, quarter: q, progress: prog, colorConfig: GOAL_COLORS[annualGoalsList.length % GOAL_COLORS.length] });
           });
         });
 
         annualLeadingScore = annualTaskCountForUI === 0 ? 0 : Math.round(annualTaskScoreSum / annualTaskCountForUI);
-        // 🌟 改為動態除以總目標數量
         annualLaggingScore = annualGoalsList.length > 0 ? Math.round(annualProgressSum / annualGoalsList.length) : 0;
       }
 
@@ -827,9 +804,15 @@
                 <span className="text-xs font-normal text-zinc-400 bg-zinc-100 px-2 py-1 rounded">今日 {todayStr}</span>
                 {auth && user && !user.isAnonymous ? (
                   <div className="flex items-center space-x-2 sm:space-x-3">
-                    <div className="hidden sm:flex items-center text-emerald-500 font-medium px-2 py-1 bg-emerald-50 rounded-full">
-                       <Cloud className="w-3.5 h-3.5 mr-1.5" /> 已同步
-                    </div>
+                    {isSyncing ? (
+                      <div className="hidden sm:flex items-center text-blue-500 font-medium px-2 py-1 bg-blue-50 rounded-full">
+                         <Cloud className="w-3.5 h-3.5 mr-1.5 animate-pulse" /> 同步中
+                      </div>
+                    ) : (
+                      <div className="hidden sm:flex items-center text-emerald-500 font-medium px-2 py-1 bg-emerald-50 rounded-full">
+                         <Cloud className="w-3.5 h-3.5 mr-1.5" /> 已同步
+                      </div>
+                    )}
                     <button onClick={handleLogout} className="flex items-center space-x-1 text-zinc-500 hover:text-zinc-900 transition-colors">
                       <LogOut className="w-4 h-4" />
                       <span>登出</span>
@@ -1330,6 +1313,10 @@
                           </div>
                           
                           <div className="flex items-center space-x-2" data-html2canvas-ignore="true">
+                            <button onClick={() => setShowPasteModal(true)} className="text-xs flex items-center space-x-1 bg-white border border-zinc-200 hover:border-zinc-300 px-3 py-1.5 rounded-md shadow-sm transition-colors text-zinc-600 w-full sm:w-auto justify-center">
+                              <FileText className="w-3 h-3" />
+                              <span>試算表匯入</span>
+                            </button>
                             <button onClick={addTask} className="text-xs flex items-center space-x-1 bg-zinc-900 text-white hover:bg-zinc-800 px-3 py-1.5 rounded-md shadow-sm transition-colors w-full sm:w-auto justify-center">
                               <Plus className="w-3 h-3" />
                               <span>新增任務</span>
@@ -1455,6 +1442,36 @@
             )}
 
           </main>
+
+          {/* Modal - 批次匯入 */}
+          {showPasteModal && (
+            <div className="fixed inset-0 bg-zinc-900/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+              <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl overflow-hidden flex flex-col">
+                <div className="px-6 py-4 border-b border-zinc-100 flex items-center justify-between">
+                  <h3 className="font-medium text-zinc-900 flex items-center">
+                    <FileText className="w-4 h-4 mr-2 text-zinc-500" />
+                    從試算表批次匯入
+                  </h3>
+                  <button onClick={() => setShowPasteModal(false)} className="text-zinc-400 hover:text-zinc-600 transition-colors"><X className="w-5 h-5" /></button>
+                </div>
+                
+                <div className="p-6 overflow-y-auto max-h-[70vh]">
+                  <div className="bg-zinc-50 rounded-lg p-4 text-xs sm:text-sm text-zinc-600 mb-4 border border-zinc-200">
+                    <p className="font-medium mb-1">💡 如何使用：</p>
+                    <p>請直接在 Google Sheets 或 Excel 框選多行內容，然後在此處貼上。</p>
+                    <p className="mt-2 text-zinc-500">建議的欄位順序為（欄位之間用 Tab 分隔）：<br />
+                    <strong className="text-zinc-700">1.任務名稱(必填)</strong> | 2.關聯目標名稱 | 3.每週目標次數 | 4.備註</p>
+                  </div>
+                  <textarea value={pasteText} onChange={(e) => setPasteText(e.target.value)} placeholder="在此貼上您的試算表內容..." className="w-full h-48 p-4 border border-zinc-200 rounded-lg focus:ring-2 focus:ring-zinc-900 focus:border-zinc-900 outline-none resize-none text-sm font-mono text-zinc-700 placeholder:font-sans" />
+                </div>
+
+                <div className="px-6 py-4 bg-zinc-50 border-t border-zinc-100 flex justify-end space-x-3">
+                  <button onClick={() => setShowPasteModal(false)} className="px-4 py-2 text-sm font-medium text-zinc-600 hover:text-zinc-900 transition-colors">取消</button>
+                  <button onClick={handleBatchImport} className="px-4 py-2 text-sm font-medium bg-zinc-900 text-white rounded-lg hover:bg-zinc-800 transition-colors shadow-sm">確認匯入</button>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Modal - 帳號登入/註冊 */}
           {showAuthModal && (
