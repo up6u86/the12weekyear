@@ -113,6 +113,7 @@
     const TrendingUp = (p) => <Icon {...p}><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/></Icon>;
     const Activity = (p) => <Icon {...p}><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></Icon>;
     const ListTodo = (p) => <Icon {...p}><rect x="3" y="5" width="6" height="6" rx="1"/><path d="m3 17 2 2 4-4"/><path d="M13 6h8"/><path d="M13 12h8"/><path d="M13 18h8"/></Icon>;
+    const FileText = (p) => <Icon {...p}><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/></Icon>;
     const X = (p) => <Icon {...p}><path d="M18 6 6 18"/><path d="m6 6 12 12"/></Icon>;
 
     // --- 4. 建立空白週期的輔助函數 & 初始資料 ---
@@ -207,70 +208,87 @@
       return 100;
     };
 
-    // 🌟 終極資料救援與智慧合併腳本
-    const migrateData = (parsed) => {
-      if (!parsed) return INITIAL_DATA;
-      let migrated = { ...parsed };
-      
-      // 確保基礎年份架構存在
-      if (!migrated.years) migrated.years = { "2026": {} };
-      if (!migrated.years["2026"]) migrated.years["2026"] = {};
+    // 🌟 終極資料救援與智慧合併腳本 (Deep Merge Rescue)
+    // 會找回您遺落在底層的 W8-W12、Q2 與所有願景！
+    const mergeQ = (oldQ, newQ) => {
+        if (!oldQ) return newQ ? JSON.parse(JSON.stringify(newQ)) : createEmptyQuarter();
+        if (!newQ) return oldQ ? JSON.parse(JSON.stringify(oldQ)) : createEmptyQuarter();
+        
+        const mergedWeeks = {};
+        // 合併雙方所有的週次 keys，確保 W8-W12 不會被新的空殼給拋棄
+        const allWeekKeys = new Set([...Object.keys(oldQ.weeks || {}), ...Object.keys(newQ.weeks || {})]);
+        
+        allWeekKeys.forEach(w => {
+            const oldW = oldQ.weeks?.[w];
+            const newW = newQ.weeks?.[w];
+            if (oldW && !newW) {
+                mergedWeeks[w] = oldW;
+            } else if (!oldW && newW) {
+                mergedWeeks[w] = newW;
+            } else {
+                // 如果兩邊都有這週的資料，計算哪一邊的使用者「打字比較多」就保留哪一邊
+                const scoreTask = (wObj) => (wObj.tasks || []).reduce((acc, t) => acc + (t.name && t.name !== '新任務' ? t.name.length : 0) + (t.note ? t.note.length : 0), 0);
+                const oldScore = scoreTask(oldW);
+                const newScore = scoreTask(newW);
+                mergedWeeks[w] = newScore >= oldScore ? newW : oldW;
+            }
+        });
 
-      // 核心智慧合併演算法：保留您有填寫真實文字的資料！
-      const mergeQ = (oldQ, newQ) => {
-          if (!oldQ) return newQ;
-          if (!newQ) return oldQ;
-          
-          const mergedWeeks = { ...oldQ.weeks };
-          // 比對新舊週次任務
-          Object.keys(newQ.weeks || {}).forEach(w => {
-             const oldW = oldQ.weeks[w];
-             const newW = newQ.weeks[w];
-             if (!oldW) {
-                 mergedWeeks[w] = newW;
-             } else {
-                 // 判斷哪一邊的資料是使用者「真正修改過的」(非空值或新任務預設字)
-                 const oldHasData = oldW.tasks?.some(t => t.name && t.name !== '新任務');
-                 const newHasData = newW.tasks?.some(t => t.name && t.name !== '新任務');
-                 // 如果舊資料有真實內容，新資料卻是空的，就優先保留舊資料！
-                 mergedWeeks[w] = (newHasData ? newW : (oldHasData ? oldW : newW));
-             }
-          });
+        return {
+            lagging: (newQ.lagging?.length >= oldQ.lagging?.length) ? newQ.lagging : (oldQ.lagging || []),
+            history: { ...(oldQ.history || {}), ...(newQ.history || {}) },
+            weeks: mergedWeeks,
+            // 保留季度回顧 (字數多的贏)
+            review: ((newQ.review?.length || 0) >= (oldQ.review?.length || 0)) ? (newQ.review || '') : (oldQ.review || '')
+        };
+    };
 
-          return {
-              // 比較指標長度，保留使用者自訂比較多的那一邊
-              lagging: (newQ.lagging && newQ.lagging.length >= (oldQ.lagging?.length || 0)) ? newQ.lagging : (oldQ.lagging || newQ.lagging || []),
-              history: { ...oldQ.history, ...newQ.history },
-              weeks: mergedWeeks,
-              // 如果您在舊版或新版填過回顧，都會為您保留下來
-              review: newQ.review || oldQ.review || ''
-          };
-      };
+    const masterMerge = (dataA, dataB) => {
+        if (!dataA && !dataB) return INITIAL_DATA;
+        if (!dataA) return dataB;
+        if (!dataB) return dataA;
 
-      // 執行跨版本資料縫合打撈
-      ['Q1', 'Q2', 'Q3', 'Q4'].forEach(q => {
-          if (migrated[q]) {
-              migrated.years["2026"][q] = mergeQ(migrated[q], migrated.years["2026"][q]);
-              delete migrated[q];
-          } else if (!migrated.years["2026"][q]) {
-              migrated.years["2026"][q] = createEmptyQuarter();
-          }
-      });
+        const merged = { ...dataA, ...dataB };
 
-      if (migrated.annualReview) {
-          migrated.years["2026"].annualReview = migrated.years["2026"].annualReview || migrated.annualReview;
-          delete migrated.annualReview;
-      }
+        // 願景板救援 (字數多的贏)
+        const visionA_len = dataA.visions ? dataA.visions.join('').length : 0;
+        const visionB_len = dataB.visions ? dataB.visions.join('').length : 0;
+        merged.visions = visionA_len >= visionB_len ? (dataA.visions || []) : (dataB.visions || []);
+        merged.visionTitle = (dataA.visionTitle?.length || 0) >= (dataB.visionTitle?.length || 0) ? dataA.visionTitle : dataB.visionTitle;
+        merged.targetDate = dataA.targetDate || dataB.targetDate || '2026-12-31';
 
-      // 恢復願景板
-      if (migrated.visionTitle === undefined) migrated.visionTitle = INITIAL_DATA.visionTitle;
-      if (migrated.visions === undefined || migrated.visions.length === 0) {
-         // 若不小心被空陣列覆蓋，且有殘留的舊變數，嘗試復原
-         migrated.visions = migrated.visions || [];
-      }
-      if (migrated.targetDate === undefined) migrated.targetDate = INITIAL_DATA.targetDate;
-      
-      return migrated;
+        merged.years = { ...(dataA.years || {}), ...(dataB.years || {}) };
+        
+        const allYears = new Set([...Object.keys(dataA.years || {}), ...Object.keys(dataB.years || {}), "2026"]);
+        
+        allYears.forEach(y => {
+            if (!merged.years[y]) merged.years[y] = {};
+            ['Q1', 'Q2', 'Q3', 'Q4'].forEach(q => {
+                // 檢查是否遺落在更早期的 root 層級
+                const rootQ_A = y === "2026" ? dataA[q] : null;
+                const rootQ_B = y === "2026" ? dataB[q] : null;
+                
+                let bestQ = mergeQ(rootQ_A, rootQ_B);
+                bestQ = mergeQ(bestQ, dataA.years?.[y]?.[q]);
+                bestQ = mergeQ(bestQ, dataB.years?.[y]?.[q]);
+                
+                merged.years[y][q] = bestQ;
+            });
+            
+            // 年度總結救援
+            const rootAnn_A = y === "2026" ? dataA.annualReview : '';
+            const rootAnn_B = y === "2026" ? dataB.annualReview : '';
+            const ann_A = dataA.years?.[y]?.annualReview || '';
+            const ann_B = dataB.years?.[y]?.annualReview || '';
+            
+            const anns = [rootAnn_A, rootAnn_B, ann_A, ann_B].filter(Boolean);
+            merged.years[y].annualReview = anns.reduce((best, cur) => cur.length > best.length ? cur : best, '');
+        });
+
+        // 徹底清理已轉移的舊垃圾
+        ['Q1', 'Q2', 'Q3', 'Q4', 'annualReview'].forEach(k => delete merged[k]);
+
+        return merged;
     };
 
     // --- 6. 應用主元件 ---
@@ -280,13 +298,13 @@
       const [data, setData] = useState(() => {
         const saved = safeGetItem('12wy_data');
         if (saved) {
-           try { return migrateData(JSON.parse(saved)); } 
+           try { return masterMerge(INITIAL_DATA, JSON.parse(saved)); } 
            catch (e) { return INITIAL_DATA; }
         }
         return INITIAL_DATA;
       });
       
-      // 🌟 分頁切換自動記憶功能 (若無痕模式不支援則預設 Q1 W1)
+      // 🌟 分頁切換自動記憶功能 (精準停留，不會再亂跳)
       const [currentYear, setCurrentYear] = useState(() => safeGetItem('12wy_year') || '2026');
       const [currentQuarter, setCurrentQuarter] = useState(() => safeGetItem('12wy_quarter') || 'Q1');
       const [currentWeek, setCurrentWeek] = useState(() => {
@@ -305,6 +323,9 @@
       const [authLoading, setAuthLoading] = useState(false);
       const [authError, setAuthError] = useState('');
 
+      const [showPasteModal, setShowPasteModal] = useState(false);
+      const [pasteText, setPasteText] = useState('');
+
       const [showYearModal, setShowYearModal] = useState(false);
       const [yearInput, setYearInput] = useState('');
 
@@ -321,20 +342,6 @@
       useEffect(() => { safeSetItem('12wy_year', currentYear); }, [currentYear]);
       useEffect(() => { safeSetItem('12wy_quarter', currentQuarter); }, [currentQuarter]);
       useEffect(() => { safeSetItem('12wy_week', currentWeek); }, [currentWeek]);
-
-      // 🌟 完美修復 textarea 重新整理後變形/加寬的問題
-      useEffect(() => {
-        let count = 0;
-        const interval = setInterval(() => {
-          const textareas = document.querySelectorAll('.vision-textarea');
-          textareas.forEach(ta => {
-            ta.style.height = 'auto';
-            ta.style.height = ta.scrollHeight + 'px';
-          });
-          if (++count > 5) clearInterval(interval); // 反覆對齊 5 次確保渲染完畢
-        }, 100);
-        return () => clearInterval(interval);
-      }, [data?.visions, currentQuarter, currentWeek, currentYear]);
 
       // 1. 初始化 Auth 與 Persistence
       useEffect(() => {
@@ -361,7 +368,7 @@
         }
       }, []);
 
-      // 2. 獲取遠端資料庫
+      // 2. 獲取遠端資料庫並進行「終極合併」
       useEffect(() => {
         if (!auth || !user) return;
         setIsSyncing(true);
@@ -378,11 +385,17 @@
           const unsubscribe = onSnapshot(docRef, (docSnap) => {
             clearTimeout(syncTimeoutId);
             if (docSnap.exists() && !docSnap.metadata.hasPendingWrites) {
-              const cloudData = migrateData(docSnap.data().payload);
-              setData(cloudData);
-              safeSetItem('12wy_data', JSON.stringify(cloudData));
+              const cloudData = docSnap.data().payload;
+              const saved = safeGetItem('12wy_data');
+              const localData = saved ? JSON.parse(saved) : null;
+              
+              // 🌟 將本地殘存的紀錄與雲端的空殼完美縫合，取出最好的結果
+              const finalData = masterMerge(localData, cloudData);
+              setData(finalData);
+              safeSetItem('12wy_data', JSON.stringify(finalData));
+              // 將救回的資料推回雲端覆蓋空殼
+              setDoc(docRef, { payload: finalData }, { merge: true }).catch(() => {});
             } else if (!docSnap.exists()) {
-              // 防呆：確定遠端是空的，才把本地修復後的資料推上去，不隨便 overwrite
               setDoc(docRef, { payload: data }, { merge: false }).catch(() => {});
             }
             setIsSyncing(false);
@@ -454,16 +467,16 @@
         try { await signInAnonymously(auth); } catch (error) { console.error(error); }
       };
 
-      // 🌟 匯出為 A4 直立 PDF 的強大功能
+      // 🌟 匯出為 A4 直立 PDF (自動分頁與縮放保護)
       const exportPDF = () => {
         const element = document.getElementById('pdf-export-area');
         const opt = {
           margin:       [10, 10, 10, 10],
           filename:     `12WeekYear_${currentYear}_${currentQuarter}_W${currentWeek}.pdf`,
           image:        { type: 'jpeg', quality: 0.98 },
-          // 鎖定 windowWidth 確保排版不會在小螢幕上被擠壓，自動分割成 A4
           html2canvas:  { scale: 2, useCORS: true, windowWidth: 1200, backgroundColor: '#fafafa' },
-          jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' }
+          jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' },
+          pagebreak:    { mode: 'auto' }
         };
         window.html2pdf().set(opt).from(element).save();
       };
@@ -619,6 +632,38 @@
       const addTask = () => handleTaskAction(tasks => [...tasks, { id: `t_${Date.now()}`, name: '新任務', goalId: '', targetDays: 7, note: '', days: Array(7).fill(false) }]);
       const deleteTask = (taskId) => { if (confirm('確定刪除此任務？')) handleTaskAction(tasks => tasks.filter(t => t.id !== taskId)); };
 
+      const handleBatchImport = () => {
+        if (!pasteText.trim()) return;
+        const lines = pasteText.split('\n');
+        const newTasks = [];
+        const currentLagging = activeQuarter.lagging;
+
+        lines.forEach(line => {
+          const cols = line.split('\t');
+          if (!cols[0] || !cols[0].trim()) return;
+          const name = cols[0].trim();
+          
+          let goalId = '';
+          if (cols[1]) {
+            const goalNameInput = cols[1].trim();
+            const matchedGoal = currentLagging.find(g => g.name === goalNameInput);
+            if (matchedGoal) goalId = matchedGoal.id;
+          }
+
+          let targetDays = 7;
+          if (cols[2]) {
+            const parsedDays = parseInt(cols[2].trim(), 10);
+            if (!isNaN(parsedDays) && parsedDays >= 1 && parsedDays <= 7) targetDays = parsedDays;
+          }
+
+          const note = cols[3] ? cols[3].trim() : '';
+          newTasks.push({ id: `t_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`, name, goalId, targetDays, note, days: Array(7).fill(false) });
+        });
+
+        if (newTasks.length > 0) handleTaskAction(tasks => [...tasks, ...newTasks]);
+        setShowPasteModal(false); setPasteText('');
+      };
+
       const updateLaggingCurrent = (goalId, newCurrent) => {
         const val = Number(newCurrent);
         if (isNaN(val) || !data || currentQuarter === 'annual') return;
@@ -732,14 +777,14 @@
                   >
                     {Object.keys(data.years).sort().map(y => <option key={y} value={y}>{y} 年</option>)}
                   </select>
-                  <button onClick={openYearModal} className="text-zinc-400 hover:text-zinc-900 transition-colors p-1" title="新增年份">
+                  <button onClick={openYearModal} className="text-zinc-400 hover:text-zinc-900 transition-colors p-1" title="新增年份" data-html2canvas-ignore="true">
                     <Plus className="w-4 h-4" />
                   </button>
                 </div>
               </div>
               
               {/* 🌟 季度與年度總結切換 */}
-              <div className="flex bg-zinc-100 p-1 rounded-lg overflow-x-auto scrollbar-hide">
+              <div className="flex bg-zinc-100 p-1 rounded-lg overflow-x-auto scrollbar-hide" data-html2canvas-ignore="true">
                 {[...QUARTERS, 'annual'].map(q => (
                   <button
                     key={q}
@@ -756,7 +801,7 @@
             </div>
             
             {/* 🌟 頂部右側按鈕群 (登入 / 備份PDF) */}
-            <div className="flex flex-col items-end space-y-2 shrink-0" data-html2canvas-ignore="true">
+            <div className="flex flex-col items-end space-y-3 shrink-0" data-html2canvas-ignore="true">
               <div className="flex items-center space-x-3 text-xs sm:text-sm">
                 <span className="text-xs font-normal text-zinc-400 bg-zinc-100 px-2 py-1 rounded">今日 {todayStr}</span>
                 {auth && user && !user.isAnonymous ? (
@@ -770,9 +815,9 @@
                          <Cloud className="w-3.5 h-3.5 mr-1.5" /> 已同步
                       </div>
                     )}
-                    {/* 手機版與桌面版皆顯示的登出按鈕 */}
-                    <button onClick={handleLogout} className="flex items-center space-x-1 text-zinc-500 hover:text-zinc-900 transition-colors bg-white px-2.5 py-1.5 rounded-full shadow-sm border border-zinc-200">
-                      <LogOut className="w-3.5 h-3.5" />
+                    {/* 🌟 手機版與桌面版皆顯示的登出按鈕 */}
+                    <button onClick={handleLogout} className="flex items-center space-x-1.5 text-zinc-500 hover:text-zinc-900 transition-colors bg-white px-3 py-1.5 rounded-full shadow-sm border border-zinc-200">
+                      <LogOut className="w-4 h-4" />
                       <span className="font-medium">登出</span>
                     </button>
                   </div>
@@ -784,10 +829,10 @@
                   </button>
                 )}
               </div>
-              {/* 備份按鍵 (僅桌面顯示，位於登入下方) */}
-              <button onClick={exportPDF} className="hidden sm:flex items-center space-x-1.5 text-zinc-500 hover:text-zinc-900 transition-colors text-xs mr-1">
+              {/* 🌟 備份按鍵 (僅桌面顯示，位於登出/登入正下方) */}
+              <button onClick={exportPDF} className="hidden sm:flex items-center space-x-1.5 text-zinc-500 hover:text-zinc-900 transition-colors text-xs bg-white border border-zinc-200 px-3 py-1.5 rounded-lg shadow-sm">
                 <Download className="w-3.5 h-3.5" />
-                <span>備份 (下載 PDF)</span>
+                <span className="font-medium">備份 (下載 PDF)</span>
               </button>
             </div>
           </header>
@@ -864,7 +909,7 @@
                     </div>
                   </div>
 
-                  <div className="bg-zinc-50 p-6 rounded-2xl mb-8 border border-zinc-100">
+                  <div className="bg-zinc-50 p-6 rounded-2xl mb-8 border border-zinc-100" data-html2canvas-ignore="true">
                     <h3 className="font-semibold text-zinc-700 mb-4 text-sm">💡 總結提示：</h3>
                     <ul className="list-disc list-inside text-sm text-zinc-500 space-y-2 ml-2">
                       <li>這一年裡，我完成了哪些最自豪的目標？</li>
@@ -895,7 +940,7 @@
                          className="font-bold text-blue-600 text-lg bg-transparent focus:outline-none w-full placeholder:text-zinc-400"
                          placeholder="願景"
                        />
-                       <button onClick={addVisionItem} className="text-zinc-400 hover:text-zinc-800 transition-colors shrink-0 opacity-0 group-hover:opacity-100 p-1 bg-white rounded shadow-sm border border-zinc-200">
+                       <button onClick={addVisionItem} className="text-zinc-400 hover:text-zinc-800 transition-colors shrink-0 opacity-0 group-hover:opacity-100 p-1 bg-white rounded shadow-sm border border-zinc-200" data-html2canvas-ignore="true">
                          <Plus className="w-4 h-4" />
                        </button>
                     </div>
@@ -912,19 +957,19 @@
                             onInput={(e) => { e.target.style.height = 'auto'; e.target.style.height = e.target.scrollHeight + 'px'; }}
                             style={{ minHeight: '24px' }}
                           />
-                          <button onClick={() => removeVisionItem(i)} className="text-zinc-300 hover:text-rose-500 transition-colors shrink-0 opacity-0 group-hover/item:opacity-100 ml-2 mt-0.5">
+                          <button onClick={() => removeVisionItem(i)} className="text-zinc-300 hover:text-rose-500 transition-colors shrink-0 opacity-0 group-hover/item:opacity-100 ml-2 mt-0.5" data-html2canvas-ignore="true">
                             <Trash2 className="w-3.5 h-3.5" />
                           </button>
                         </li>
                       ))}
                       {data.visions.length === 0 && (
-                        <li className="text-sm text-zinc-400">尚未設定願景，點擊右上方「+」新增。</li>
+                        <li className="text-sm text-zinc-400" data-html2canvas-ignore="true">尚未設定願景，點擊右上方「+」新增。</li>
                       )}
                     </ul>
                   </div>
 
                   {/* 右側：翻頁時鐘倒數 */}
-                  <div className="bg-white border border-zinc-200 rounded-2xl p-4 sm:p-5 shrink-0 flex flex-col items-center justify-center shadow-sm relative group w-full md:w-auto min-w-[200px]">
+                  <div className="bg-white border border-zinc-200 rounded-2xl p-4 sm:p-5 shrink-0 flex flex-col items-center justify-center shadow-sm relative group w-full md:w-auto min-w-[200px]" data-html2canvas-ignore="true">
                      <div className="flex items-center justify-center space-x-1 text-zinc-600 font-bold mb-3 z-10 text-sm whitespace-nowrap">
                        <input 
                          type="date" 
@@ -962,7 +1007,7 @@
                       Lagging Indicators ({currentQuarter}) <span className="ml-2 w-full h-px bg-zinc-200"></span>
                     </h2>
                     {/* 🌟 新增目標按鈕 */}
-                    <button onClick={addLaggingGoal} className="ml-4 shrink-0 flex items-center space-x-1 text-xs font-medium text-zinc-500 hover:text-zinc-900 bg-white border border-zinc-200 hover:border-zinc-300 px-2 py-1.5 rounded-md shadow-sm transition-colors">
+                    <button onClick={addLaggingGoal} className="ml-4 shrink-0 flex items-center space-x-1 text-xs font-medium text-zinc-500 hover:text-zinc-900 bg-white border border-zinc-200 hover:border-zinc-300 px-2 py-1.5 rounded-md shadow-sm transition-colors" data-html2canvas-ignore="true">
                       <Plus className="w-3 h-3" />
                       <span className="hidden sm:inline">新增目標</span>
                     </button>
@@ -980,7 +1025,7 @@
                         <div key={goal.id} className="bg-white p-5 sm:p-6 rounded-2xl border border-zinc-200 shadow-[0_2px_10px_-4px_rgba(0,0,0,0.05)] flex flex-col relative overflow-hidden group">
                           
                           {/* 🌟 刪除目標按鈕 */}
-                          <div className="absolute top-4 right-4 opacity-0 sm:group-hover:opacity-100 transition-opacity z-10">
+                          <div className="absolute top-4 right-4 opacity-0 sm:group-hover:opacity-100 transition-opacity z-10" data-html2canvas-ignore="true">
                             <button onClick={() => deleteLaggingGoal(goal.id)} className="text-zinc-300 hover:text-rose-500 p-1 bg-white rounded-full shadow-sm border border-zinc-100" title="刪除目標">
                                <Trash2 className="w-4 h-4" />
                             </button>
@@ -1080,7 +1125,7 @@
                 </section>
 
                 {/* 視覺化圖表與當週領先指標 */}
-                <section className="grid grid-cols-1 md:grid-cols-3 gap-4 sm:gap-6">
+                <section className="grid grid-cols-1 md:grid-cols-3 gap-4 sm:gap-6" data-html2canvas-ignore="true">
                   <div className="bg-white p-5 sm:p-6 rounded-2xl border border-zinc-200 shadow-[0_2px_10px_-4px_rgba(0,0,0,0.05)] col-span-1 flex flex-col justify-between">
                     <div className="flex items-center justify-between mb-4">
                       <div>
@@ -1216,7 +1261,7 @@
 
                 {/* 週次切換與任務列表 / 季度回顧 */}
                 <section>
-                  <div className="flex items-center justify-between mb-4 sm:mb-6">
+                  <div className="flex items-center justify-between mb-4 sm:mb-6" data-html2canvas-ignore="true">
                     <h2 className="text-sm font-semibold text-zinc-400 tracking-wider uppercase">Weekly Execution</h2>
                     
                     {/* 🌟 12 週 + 季度總結 切換列 */}
@@ -1249,7 +1294,7 @@
                     {currentWeek === 'review' ? (
                        <div className="p-6 sm:p-8 animate-in fade-in">
                           <h3 className="text-xl font-bold text-zinc-800 mb-2">🎉 {currentQuarter} 季度回顧與反思</h3>
-                          <p className="text-sm text-zinc-500 mb-6">12 週的努力告一段落，給自己一些掌聲！在這裡寫下你的心得，幫助下一個週期做得更好。</p>
+                          <p className="text-sm text-zinc-500 mb-6" data-html2canvas-ignore="true">12 週的努力告一段落，給自己一些掌聲！在這裡寫下你的心得，幫助下一個週期做得更好。</p>
                           <textarea
                             value={activeQuarter.review || ''}
                             onChange={(e) => updateQuarterlyReview(e.target.value)}
@@ -1291,7 +1336,7 @@
                                 ))}
                                 <th className="px-3 py-3 text-xs font-medium text-zinc-400 border-b border-zinc-100 text-center w-[7%]">達成率</th>
                                 <th className="px-3 py-3 text-xs font-medium text-zinc-400 border-b border-zinc-100 w-[11%]">備註</th>
-                                <th className="px-3 py-3 text-xs font-medium text-zinc-400 border-b border-zinc-100 text-center w-[5%]">操作</th>
+                                <th className="px-3 py-3 text-xs font-medium text-zinc-400 border-b border-zinc-100 text-center w-[5%]" data-html2canvas-ignore="true">操作</th>
                               </tr>
                             </thead>
                             <tbody className="divide-y divide-zinc-50">
@@ -1330,7 +1375,7 @@
                                       <td className="px-3 py-4 text-sm">
                                         <input type="text" value={task.note || ''} onChange={(e) => updateTaskNote(task.id, e.target.value)} placeholder="備註..." className="bg-transparent border-b border-transparent hover:border-zinc-300 focus:border-zinc-900 focus:outline-none transition-colors w-full text-xs text-zinc-500 py-1" />
                                       </td>
-                                      <td className="px-3 py-4 text-center">
+                                      <td className="px-3 py-4 text-center" data-html2canvas-ignore="true">
                                         <button onClick={() => deleteTask(task.id)} className="text-zinc-300 hover:text-rose-500 transition-colors opacity-0 group-hover:opacity-100 p-2 -m-2"><Trash2 className="w-4 h-4 mx-auto" /></button>
                                       </td>
                                     </tr>
@@ -1352,7 +1397,7 @@
                                 <div key={task.id} className="bg-white p-4 rounded-xl border border-zinc-200 shadow-sm flex flex-col gap-4 relative">
                                   <div className="flex items-center justify-between gap-3">
                                      <input type="text" value={task.name} onChange={(e) => updateTaskName(task.id, e.target.value)} className="font-semibold text-zinc-800 bg-transparent border-b border-transparent focus:border-zinc-900 focus:outline-none w-full text-base" placeholder="任務名稱" />
-                                     <button onClick={() => deleteTask(task.id)} className="p-2 -mr-2 text-zinc-300 hover:text-rose-500 transition-colors"><Trash2 className="w-4 h-4" /></button>
+                                     <button onClick={() => deleteTask(task.id)} className="p-2 -mr-2 text-zinc-300 hover:text-rose-500 transition-colors" data-html2canvas-ignore="true"><Trash2 className="w-4 h-4" /></button>
                                   </div>
                                   <div className="flex items-center justify-between gap-3 text-sm">
                                      <select value={task.goalId || ''} onChange={(e) => updateTaskGoal(task.id, e.target.value)} className="bg-zinc-100 text-zinc-600 text-xs px-2 py-2 rounded-lg border-none focus:outline-none flex-1 truncate">
@@ -1397,7 +1442,7 @@
 
           </main>
 
-          {/* Modal - 帳號登入/註冊 */}
+          {/* 帳號登入/註冊 Modal */}
           {showAuthModal && (
             <div className="fixed inset-0 bg-zinc-900/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
               <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm overflow-hidden flex flex-col">
@@ -1473,19 +1518,6 @@
                   <button onClick={confirmAddYear} className="px-4 py-2 text-sm font-medium bg-zinc-900 text-white rounded-lg hover:bg-zinc-800 transition-colors shadow-sm">確認新增</button>
                 </div>
               </div>
-            </div>
-          )}
-
-          {/* 異常警告橫幅 */}
-          {hasLoadWarning && (
-            <div className="fixed bottom-0 left-0 w-full bg-amber-50 border-t border-amber-200 p-3 sm:p-4 text-xs sm:text-sm text-amber-700 flex justify-between items-start sm:items-center z-50 shadow-[0_-4px_10px_rgba(0,0,0,0.05)]">
-              <div className="flex items-start sm:items-center">
-                <span className="text-amber-500 mr-2 text-base leading-none">⚠️</span>
-                <span>網路環境受限，目前以本地模式執行。若需跨裝置同步，請嘗試點擊右上角「登入」或切換至一般瀏覽器。</span>
-              </div>
-              <button onClick={() => setHasLoadWarning(false)} className="text-amber-500 hover:text-amber-700 p-1 -m-1 ml-4 shrink-0">
-                <X className="w-4 h-4" />
-              </button>
             </div>
           )}
 
