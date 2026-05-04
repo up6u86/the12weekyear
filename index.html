@@ -113,7 +113,6 @@
     const TrendingUp = (p) => <Icon {...p}><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/></Icon>;
     const Activity = (p) => <Icon {...p}><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></Icon>;
     const ListTodo = (p) => <Icon {...p}><rect x="3" y="5" width="6" height="6" rx="1"/><path d="m3 17 2 2 4-4"/><path d="M13 6h8"/><path d="M13 12h8"/><path d="M13 18h8"/></Icon>;
-    const FileText = (p) => <Icon {...p}><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/></Icon>;
     const X = (p) => <Icon {...p}><path d="M18 6 6 18"/><path d="m6 6 12 12"/></Icon>;
 
     // --- 4. 建立空白週期的輔助函數 & 初始資料 ---
@@ -139,6 +138,16 @@
           annualReview: ''
         }
       }
+    };
+
+    // 保留預設的第一週範例，避免空白無聊
+    INITIAL_DATA.years["2026"].Q1.weeks[1] = {
+      isEdited: true,
+      tasks: [
+        { id: 't1', name: '', goalId: '', targetDays: 7, note: '', days: Array(7).fill(false) },
+        { id: 't2', name: '', goalId: '', targetDays: 7, note: '', days: Array(7).fill(false) },
+        { id: 't3', name: '', goalId: '', targetDays: 7, note: '', days: Array(7).fill(false) }
+      ]
     };
 
     const QUARTERS = ['Q1', 'Q2', 'Q3', 'Q4'];
@@ -208,87 +217,119 @@
       return 100;
     };
 
-    // 🌟 終極資料救援與智慧合併腳本 (Deep Merge Rescue)
-    // 會找回您遺落在底層的 W8-W12、Q2 與所有願景！
-    const mergeQ = (oldQ, newQ) => {
-        if (!oldQ) return newQ ? JSON.parse(JSON.stringify(newQ)) : createEmptyQuarter();
-        if (!newQ) return oldQ ? JSON.parse(JSON.stringify(oldQ)) : createEmptyQuarter();
-        
-        const mergedWeeks = {};
-        // 合併雙方所有的週次 keys，確保 W8-W12 不會被新的空殼給拋棄
-        const allWeekKeys = new Set([...Object.keys(oldQ.weeks || {}), ...Object.keys(newQ.weeks || {})]);
-        
-        allWeekKeys.forEach(w => {
-            const oldW = oldQ.weeks?.[w];
-            const newW = newQ.weeks?.[w];
-            if (oldW && !newW) {
-                mergedWeeks[w] = oldW;
-            } else if (!oldW && newW) {
-                mergedWeeks[w] = newW;
-            } else {
-                // 如果兩邊都有這週的資料，計算哪一邊的使用者「打字比較多」就保留哪一邊
-                const scoreTask = (wObj) => (wObj.tasks || []).reduce((acc, t) => acc + (t.name && t.name !== '新任務' ? t.name.length : 0) + (t.note ? t.note.length : 0), 0);
-                const oldScore = scoreTask(oldW);
-                const newScore = scoreTask(newW);
-                mergedWeeks[w] = newScore >= oldScore ? newW : oldW;
-            }
-        });
+    // 🌟 終極資料縫合演算法 (Deep Merge Rescue)
+    // 會潛入本地與雲端所有資料，只要發現有「真實輸入過內容」的，絕對優先保留！
+    const scoreGoal = (g) => {
+      if (!g) return -1;
+      let s = 0;
+      if (g.name && !g.name.includes('目標') && !g.name.includes('主要目標')) s += 10;
+      if (g.unit && g.unit !== '單位') s += 2;
+      if (g.target !== 100 && g.target !== 0) s += 2;
+      if (g.start !== 0) s += 2;
+      if (g.current !== 0) s += 5;
+      return s;
+    };
 
-        return {
-            lagging: (newQ.lagging?.length >= oldQ.lagging?.length) ? newQ.lagging : (oldQ.lagging || []),
-            history: { ...(oldQ.history || {}), ...(newQ.history || {}) },
-            weeks: mergedWeeks,
-            // 保留季度回顧 (字數多的贏)
-            review: ((newQ.review?.length || 0) >= (oldQ.review?.length || 0)) ? (newQ.review || '') : (oldQ.review || '')
-        };
+    const scoreWeek = (wObj) => {
+      if (!wObj || !wObj.tasks) return -1;
+      return wObj.tasks.reduce((acc, t) => {
+          let s = 0;
+          if (t.name && t.name !== '新任務' && !t.name.includes('晨跑') && !t.name.includes('零食')) s += 10;
+          if (t.note) s += 5;
+          if (t.goalId) s += 2;
+          s += (t.days || []).filter(Boolean).length * 5; 
+          if (t.targetDays !== 7) s += 2;
+          return acc + s;
+      }, 0);
     };
 
     const masterMerge = (dataA, dataB) => {
-        if (!dataA && !dataB) return INITIAL_DATA;
-        if (!dataA) return dataB;
-        if (!dataB) return dataA;
+      const merged = JSON.parse(JSON.stringify(INITIAL_DATA)); // 以標準乾淨結構為底
+      
+      // 1. 救援 願景 Visions (抓取長度最長的)
+      const vCands = [
+          INITIAL_DATA.visions,
+          dataA?.visions, dataB?.visions, 
+          dataA?.years?.["2026"]?.visions, dataB?.years?.["2026"]?.visions
+      ].filter(Array.isArray);
+      let bestV = [];
+      vCands.forEach(v => { if (v.join('').length > bestV.join('').length) bestV = [...v]; });
+      merged.visions = bestV;
 
-        const merged = { ...dataA, ...dataB };
+      // 1.5 救援 願景標題 VisionTitle
+      const vtCands = [INITIAL_DATA.visionTitle, dataA?.visionTitle, dataB?.visionTitle].filter(Boolean);
+      let bestVt = '';
+      vtCands.forEach(v => { if (v.length > bestVt.length) bestVt = v; });
+      merged.visionTitle = bestVt;
+      
+      merged.targetDate = dataB?.targetDate || dataA?.targetDate || INITIAL_DATA.targetDate;
 
-        // 願景板救援 (字數多的贏)
-        const visionA_len = dataA.visions ? dataA.visions.join('').length : 0;
-        const visionB_len = dataB.visions ? dataB.visions.join('').length : 0;
-        merged.visions = visionA_len >= visionB_len ? (dataA.visions || []) : (dataB.visions || []);
-        merged.visionTitle = (dataA.visionTitle?.length || 0) >= (dataB.visionTitle?.length || 0) ? dataA.visionTitle : dataB.visionTitle;
-        merged.targetDate = dataA.targetDate || dataB.targetDate || '2026-12-31';
+      // 2. 救援 2026 年度總結 Annual Review
+      const aCands = [dataA?.annualReview, dataB?.annualReview, dataA?.years?.["2026"]?.annualReview, dataB?.years?.["2026"]?.annualReview].filter(Boolean);
+      let bestA = '';
+      aCands.forEach(a => { if (a.length > bestA.length) bestA = a; });
+      merged.years["2026"].annualReview = bestA;
 
-        merged.years = { ...(dataA.years || {}), ...(dataB.years || {}) };
-        
-        const allYears = new Set([...Object.keys(dataA.years || {}), ...Object.keys(dataB.years || {}), "2026"]);
-        
-        allYears.forEach(y => {
-            if (!merged.years[y]) merged.years[y] = {};
-            ['Q1', 'Q2', 'Q3', 'Q4'].forEach(q => {
-                // 檢查是否遺落在更早期的 root 層級
-                const rootQ_A = y === "2026" ? dataA[q] : null;
-                const rootQ_B = y === "2026" ? dataB[q] : null;
-                
-                let bestQ = mergeQ(rootQ_A, rootQ_B);
-                bestQ = mergeQ(bestQ, dataA.years?.[y]?.[q]);
-                bestQ = mergeQ(bestQ, dataB.years?.[y]?.[q]);
-                
-                merged.years[y][q] = bestQ;
-            });
-            
-            // 年度總結救援
-            const rootAnn_A = y === "2026" ? dataA.annualReview : '';
-            const rootAnn_B = y === "2026" ? dataB.annualReview : '';
-            const ann_A = dataA.years?.[y]?.annualReview || '';
-            const ann_B = dataB.years?.[y]?.annualReview || '';
-            
-            const anns = [rootAnn_A, rootAnn_B, ann_A, ann_B].filter(Boolean);
-            merged.years[y].annualReview = anns.reduce((best, cur) => cur.length > best.length ? cur : best, '');
-        });
+      // 3. 救援 各季 Q1 ~ Q4 (深度比對)
+      ['Q1', 'Q2', 'Q3', 'Q4'].forEach(qName => {
+          const qCands = [
+              INITIAL_DATA.years["2026"][qName],
+              dataA?.[qName], dataB?.[qName], 
+              dataA?.years?.["2026"]?.[qName], dataB?.years?.["2026"]?.[qName]
+          ].filter(Boolean);
+          
+          const bestQ = createEmptyQuarter();
 
-        // 徹底清理已轉移的舊垃圾
-        ['Q1', 'Q2', 'Q3', 'Q4', 'annualReview'].forEach(k => delete merged[k]);
+          qCands.forEach(c => {
+              // 回顧 Review
+              if (c.review && c.review.length > (bestQ.review || '').length) bestQ.review = c.review;
+              
+              // 落後指標 Lagging
+              if (c.lagging && Array.isArray(c.lagging)) {
+                  c.lagging.forEach((g, i) => {
+                      if (!bestQ.lagging[i]) {
+                          bestQ.lagging[i] = { ...g };
+                      } else {
+                          const s1 = scoreGoal(g);
+                          const s2 = scoreGoal(bestQ.lagging[i]);
+                          if (s1 > s2) bestQ.lagging[i] = { ...g };
+                          else if (s1 === s2 && g.current > bestQ.lagging[i].current) bestQ.lagging[i].current = g.current;
+                      }
+                  });
+              }
 
-        return merged;
+              // 歷史 History
+              if (c.history) {
+                  Object.keys(c.history).forEach(w => {
+                      bestQ.history[w] = { ...(bestQ.history[w] || {}), ...c.history[w] };
+                  });
+              }
+
+              // 任務 Weeks (一週一週深入比對)
+              if (c.weeks) {
+                  Object.keys(c.weeks).forEach(w => {
+                      const exW = bestQ.weeks[w];
+                      const cdW = c.weeks[w];
+                      if (!exW) {
+                          bestQ.weeks[w] = JSON.parse(JSON.stringify(cdW));
+                      } else if (scoreWeek(cdW) > scoreWeek(exW)) {
+                          bestQ.weeks[w] = JSON.parse(JSON.stringify(cdW));
+                      }
+                  });
+              }
+          });
+          merged.years["2026"][qName] = bestQ;
+      });
+
+      // 4. 確保其它年份資料不遺失
+      const otherYears = new Set([...Object.keys(dataA?.years || {}), ...Object.keys(dataB?.years || {})]);
+      otherYears.forEach(y => {
+          if (y !== "2026") {
+              merged.years[y] = dataB?.years?.[y] || dataA?.years?.[y];
+          }
+      });
+
+      return merged;
     };
 
     // --- 6. 應用主元件 ---
@@ -297,11 +338,8 @@
       
       const [data, setData] = useState(() => {
         const saved = safeGetItem('12wy_data');
-        if (saved) {
-           try { return masterMerge(INITIAL_DATA, JSON.parse(saved)); } 
-           catch (e) { return INITIAL_DATA; }
-        }
-        return INITIAL_DATA;
+        const localData = saved ? JSON.parse(saved) : null;
+        return masterMerge(localData, null); 
       });
       
       // 🌟 分頁切換自動記憶功能 (精準停留，不會再亂跳)
@@ -323,9 +361,6 @@
       const [authLoading, setAuthLoading] = useState(false);
       const [authError, setAuthError] = useState('');
 
-      const [showPasteModal, setShowPasteModal] = useState(false);
-      const [pasteText, setPasteText] = useState('');
-
       const [showYearModal, setShowYearModal] = useState(false);
       const [yearInput, setYearInput] = useState('');
 
@@ -342,6 +377,20 @@
       useEffect(() => { safeSetItem('12wy_year', currentYear); }, [currentYear]);
       useEffect(() => { safeSetItem('12wy_quarter', currentQuarter); }, [currentQuarter]);
       useEffect(() => { safeSetItem('12wy_week', currentWeek); }, [currentWeek]);
+
+      // 🌟 完美修復 textarea 重新整理後變形/加寬的問題
+      useEffect(() => {
+        let count = 0;
+        const interval = setInterval(() => {
+          const textareas = document.querySelectorAll('.vision-textarea');
+          textareas.forEach(ta => {
+            ta.style.height = 'auto';
+            ta.style.height = ta.scrollHeight + 'px';
+          });
+          if (++count > 5) clearInterval(interval); // 反覆對齊 5 次確保渲染完畢
+        }, 100);
+        return () => clearInterval(interval);
+      }, [data?.visions, currentQuarter, currentWeek, currentYear]);
 
       // 1. 初始化 Auth 與 Persistence
       useEffect(() => {
@@ -368,7 +417,7 @@
         }
       }, []);
 
-      // 2. 獲取遠端資料庫並進行「終極合併」
+      // 2. 獲取遠端資料庫並進行「終極縫合」
       useEffect(() => {
         if (!auth || !user) return;
         setIsSyncing(true);
@@ -389,13 +438,14 @@
               const saved = safeGetItem('12wy_data');
               const localData = saved ? JSON.parse(saved) : null;
               
-              // 🌟 將本地殘存的紀錄與雲端的空殼完美縫合，取出最好的結果
+              // 🌟 將本地殘存的紀錄與雲端的資料完美縫合
               const finalData = masterMerge(localData, cloudData);
               setData(finalData);
               safeSetItem('12wy_data', JSON.stringify(finalData));
-              // 將救回的資料推回雲端覆蓋空殼
+              // 將救回的資料推回雲端
               setDoc(docRef, { payload: finalData }, { merge: true }).catch(() => {});
             } else if (!docSnap.exists()) {
+              // 雲端為空時，將本地打撈完畢的資料推上去
               setDoc(docRef, { payload: data }, { merge: false }).catch(() => {});
             }
             setIsSyncing(false);
@@ -467,7 +517,7 @@
         try { await signInAnonymously(auth); } catch (error) { console.error(error); }
       };
 
-      // 🌟 匯出為 A4 直立 PDF (自動分頁與縮放保護)
+      // 🌟 匯出為 A4 直立 PDF (鎖定 WindowWidth 確保完美裁切)
       const exportPDF = () => {
         const element = document.getElementById('pdf-export-area');
         const opt = {
@@ -631,38 +681,6 @@
       const updateTaskNote = (taskId, noteText) => handleTaskAction(tasks => tasks.map(t => t.id === taskId ? { ...t, note: noteText } : t));
       const addTask = () => handleTaskAction(tasks => [...tasks, { id: `t_${Date.now()}`, name: '新任務', goalId: '', targetDays: 7, note: '', days: Array(7).fill(false) }]);
       const deleteTask = (taskId) => { if (confirm('確定刪除此任務？')) handleTaskAction(tasks => tasks.filter(t => t.id !== taskId)); };
-
-      const handleBatchImport = () => {
-        if (!pasteText.trim()) return;
-        const lines = pasteText.split('\n');
-        const newTasks = [];
-        const currentLagging = activeQuarter.lagging;
-
-        lines.forEach(line => {
-          const cols = line.split('\t');
-          if (!cols[0] || !cols[0].trim()) return;
-          const name = cols[0].trim();
-          
-          let goalId = '';
-          if (cols[1]) {
-            const goalNameInput = cols[1].trim();
-            const matchedGoal = currentLagging.find(g => g.name === goalNameInput);
-            if (matchedGoal) goalId = matchedGoal.id;
-          }
-
-          let targetDays = 7;
-          if (cols[2]) {
-            const parsedDays = parseInt(cols[2].trim(), 10);
-            if (!isNaN(parsedDays) && parsedDays >= 1 && parsedDays <= 7) targetDays = parsedDays;
-          }
-
-          const note = cols[3] ? cols[3].trim() : '';
-          newTasks.push({ id: `t_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`, name, goalId, targetDays, note, days: Array(7).fill(false) });
-        });
-
-        if (newTasks.length > 0) handleTaskAction(tasks => [...tasks, ...newTasks]);
-        setShowPasteModal(false); setPasteText('');
-      };
 
       const updateLaggingCurrent = (goalId, newCurrent) => {
         const val = Number(newCurrent);
@@ -1518,6 +1536,19 @@
                   <button onClick={confirmAddYear} className="px-4 py-2 text-sm font-medium bg-zinc-900 text-white rounded-lg hover:bg-zinc-800 transition-colors shadow-sm">確認新增</button>
                 </div>
               </div>
+            </div>
+          )}
+
+          {/* 異常警告橫幅 */}
+          {hasLoadWarning && (
+            <div className="fixed bottom-0 left-0 w-full bg-amber-50 border-t border-amber-200 p-3 sm:p-4 text-xs sm:text-sm text-amber-700 flex justify-between items-start sm:items-center z-50 shadow-[0_-4px_10px_rgba(0,0,0,0.05)]" data-html2canvas-ignore="true">
+              <div className="flex items-start sm:items-center">
+                <span className="text-amber-500 mr-2 text-base leading-none">⚠️</span>
+                <span>網路環境受限，目前以本地模式執行。若需跨裝置同步，請嘗試點擊右上角「登入」或切換至一般瀏覽器。</span>
+              </div>
+              <button onClick={() => setHasLoadWarning(false)} className="text-amber-500 hover:text-amber-700 p-1 -m-1 ml-4 shrink-0">
+                <X className="w-4 h-4" />
+              </button>
             </div>
           )}
 
