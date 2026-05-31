@@ -321,7 +321,6 @@
         return masterMerge(localData, null); 
       });
       
-      // 🌟 分頁切換自動記憶功能 (精準停留，不會再亂跳)
       const [currentYear, setCurrentYear] = useState(() => safeGetItem('12wy_year') || '2026');
       const [currentQuarter, setCurrentQuarter] = useState(() => safeGetItem('12wy_quarter') || 'Q1');
       const [currentWeek, setCurrentWeek] = useState(() => {
@@ -342,6 +341,12 @@
 
       const [showYearModal, setShowYearModal] = useState(false);
       const [yearInput, setYearInput] = useState('');
+
+      // 🌟 新增：自訂對話框 (Dialog) 狀態，徹底解決瀏覽器阻擋 confirm() 的問題
+      const [dialog, setDialog] = useState({ isOpen: false, type: 'confirm', message: '', onConfirm: null });
+
+      const [showPasteModal, setShowPasteModal] = useState(false);
+      const [pasteText, setPasteText] = useState('');
 
       const today = new Date();
       const todayStr = `${today.getMonth() + 1}/${today.getDate()}`;
@@ -496,7 +501,7 @@
         try { await signInAnonymously(auth); } catch (error) { console.error(error); }
       };
 
-      // 🌟 手動備份資料 (JSON 格式) - 緊急資料復原用
+      // 🌟 手動備份資料 (JSON 格式)
       const exportJSON = () => {
         const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(data));
         const downloadAnchorNode = document.createElement('a');
@@ -506,7 +511,7 @@
         downloadAnchorNode.click(); downloadAnchorNode.remove();
       };
 
-      // 🌟 手動匯入資料 (JSON 格式) - 緊急資料復原用
+      // 🌟 手動匯入資料 (防呆機制：不再使用 native alert)
       const importJSON = (e) => {
         const file = e.target.files[0];
         if (!file) return;
@@ -514,12 +519,17 @@
         reader.onload = (event) => {
           try {
             const imported = JSON.parse(event.target.result);
-            // 將匯入的資料與現有資料進行縫合
-            if (imported.years || imported.lagging) saveToCloud(masterMerge(data, imported));
-            else alert('檔案格式不正確');
-          } catch (e) { alert('解析 JSON 失敗'); }
+            if (imported.years || imported.lagging) {
+                saveToCloud(masterMerge(data, imported));
+            } else {
+                setDialog({ isOpen: true, type: 'alert', message: '檔案格式不正確，無法匯入！', onConfirm: null });
+            }
+          } catch (err) { 
+              setDialog({ isOpen: true, type: 'alert', message: '解析 JSON 失敗，請確認檔案是否損毀！', onConfirm: null });
+          }
         };
         reader.readAsText(file);
+        e.target.value = ''; // 重置 input 讓下次同檔名也能觸發
       };
 
       // 🌟 匯出為 A4 直立 PDF (鎖定 WindowWidth 確保完美裁切)
@@ -612,23 +622,27 @@
         saveToCloud(newData);
       };
 
+      // 🌟 使用自訂對話框 (Dialog) 取代原生 confirm()
       const deleteLaggingGoal = (goalId) => {
-        if (!confirm('確定要刪除這個目標嗎？相關任務將會變更為「無關聯目標」。')) return;
         if (!data || currentQuarter === 'annual') return;
-        
-        const newData = { ...data };
-        const currentQData = { ...newData.years[currentYear][currentQuarter] };
-        
-        currentQData.lagging = currentQData.lagging.filter(g => g.id !== goalId);
-        
-        Object.values(currentQData.weeks).forEach(w => {
-          if(w.tasks) {
-             w.tasks = w.tasks.map(t => t.goalId === goalId ? { ...t, goalId: '' } : t);
+        setDialog({
+          isOpen: true,
+          type: 'confirm',
+          message: '確定要刪除這個目標嗎？相關任務將會變更為「無關聯目標」。',
+          onConfirm: () => {
+            const newData = { ...data };
+            const currentQData = { ...newData.years[currentYear][currentQuarter] };
+            
+            currentQData.lagging = currentQData.lagging.filter(g => g.id !== goalId);
+            Object.values(currentQData.weeks).forEach(w => {
+              if(w.tasks) {
+                 w.tasks = w.tasks.map(t => t.goalId === goalId ? { ...t, goalId: '' } : t);
+              }
+            });
+            newData.years[currentYear][currentQuarter] = currentQData;
+            saveToCloud(newData);
           }
         });
-        
-        newData.years[currentYear][currentQuarter] = currentQData;
-        saveToCloud(newData);
       };
 
       const activeQuarter = (currentQuarter !== 'annual') && data?.years?.[currentYear] ? data.years[currentYear][currentQuarter] : null;
@@ -685,7 +699,48 @@
       };
       const updateTaskNote = (taskId, noteText) => handleTaskAction(tasks => tasks.map(t => t.id === taskId ? { ...t, note: noteText } : t));
       const addTask = () => handleTaskAction(tasks => [...tasks, { id: `t_${Date.now()}`, name: '新任務', goalId: '', targetDays: 7, note: '', days: Array(7).fill(false) }]);
-      const deleteTask = (taskId) => { if (confirm('確定刪除此任務？')) handleTaskAction(tasks => tasks.filter(t => t.id !== taskId)); };
+      
+      // 🌟 使用自訂對話框 (Dialog) 取代原生 confirm()
+      const deleteTask = (taskId) => { 
+         setDialog({
+            isOpen: true,
+            type: 'confirm',
+            message: '確定要刪除此任務嗎？',
+            onConfirm: () => handleTaskAction(tasks => tasks.filter(t => t.id !== taskId))
+         });
+      };
+
+      const handleBatchImport = () => {
+        if (!pasteText.trim()) return;
+        const lines = pasteText.split('\n');
+        const newTasks = [];
+        const currentLagging = activeQuarter.lagging;
+
+        lines.forEach(line => {
+          const cols = line.split('\t');
+          if (!cols[0] || !cols[0].trim()) return;
+          const name = cols[0].trim();
+          
+          let goalId = '';
+          if (cols[1]) {
+            const goalNameInput = cols[1].trim();
+            const matchedGoal = currentLagging.find(g => g.name === goalNameInput);
+            if (matchedGoal) goalId = matchedGoal.id;
+          }
+
+          let targetDays = 7;
+          if (cols[2]) {
+            const parsedDays = parseInt(cols[2].trim(), 10);
+            if (!isNaN(parsedDays) && parsedDays >= 1 && parsedDays <= 7) targetDays = parsedDays;
+          }
+
+          const note = cols[3] ? cols[3].trim() : '';
+          newTasks.push({ id: `t_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`, name, goalId, targetDays, note, days: Array(7).fill(false) });
+        });
+
+        if (newTasks.length > 0) handleTaskAction(tasks => [...tasks, ...newTasks]);
+        setShowPasteModal(false); setPasteText('');
+      };
 
       const updateLaggingCurrent = (goalId, newCurrent) => {
         const val = Number(newCurrent);
@@ -1476,9 +1531,35 @@
 
           </main>
 
+          {/* 🌟 專屬的防彈跳 Custom Dialog */}
+          {dialog.isOpen && (
+            <div className="fixed inset-0 bg-zinc-900/40 backdrop-blur-sm flex items-center justify-center z-50 p-4" data-html2canvas-ignore="true">
+              <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm overflow-hidden flex flex-col animate-in fade-in zoom-in-95 duration-200">
+                <div className="p-6">
+                  <h3 className="font-bold text-zinc-900 mb-2 text-lg">系統提示</h3>
+                  <p className="text-sm text-zinc-600 leading-relaxed">{dialog.message}</p>
+                </div>
+                <div className="px-6 py-4 bg-zinc-50 border-t border-zinc-100 flex justify-end space-x-3">
+                  {dialog.type === 'confirm' && (
+                    <button onClick={() => setDialog({ ...dialog, isOpen: false })} className="px-4 py-2 text-sm font-medium text-zinc-500 hover:text-zinc-800 transition-colors">取消</button>
+                  )}
+                  <button 
+                    onClick={() => {
+                      if(dialog.onConfirm) dialog.onConfirm();
+                      setDialog({ ...dialog, isOpen: false });
+                    }} 
+                    className="px-5 py-2 text-sm font-medium bg-zinc-900 text-white rounded-lg hover:bg-zinc-800 transition-colors shadow-sm"
+                  >
+                    確定
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* 帳號登入/註冊 Modal */}
           {showAuthModal && (
-            <div className="fixed inset-0 bg-zinc-900/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+            <div className="fixed inset-0 bg-zinc-900/40 backdrop-blur-sm flex items-center justify-center z-50 p-4" data-html2canvas-ignore="true">
               <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm overflow-hidden flex flex-col">
                 <div className="px-6 py-4 border-b border-zinc-100 flex items-center justify-between">
                   <h3 className="font-medium text-zinc-900 flex items-center">
@@ -1547,7 +1628,7 @@
 
           {/* Modal - 新增年份 */}
           {showYearModal && (
-            <div className="fixed inset-0 bg-zinc-900/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+            <div className="fixed inset-0 bg-zinc-900/40 backdrop-blur-sm flex items-center justify-center z-50 p-4" data-html2canvas-ignore="true">
               <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm overflow-hidden flex flex-col">
                 <div className="px-6 py-4 border-b border-zinc-100 flex items-center justify-between">
                   <h3 className="font-medium text-zinc-900 flex items-center">新增年份</h3>
