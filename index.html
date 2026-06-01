@@ -116,6 +116,8 @@
     const FileText = (p) => <Icon {...p}><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/></Icon>;
     const X = (p) => <Icon {...p}><path d="M18 6 6 18"/><path d="m6 6 12 12"/></Icon>;
     const UploadIcon = (p) => <Icon {...p}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" x2="12" y1="3" y2="15"/></Icon>;
+    // 🌟 新增：日曆同步圖示
+    const CalendarPlus = (p) => <Icon {...p}><rect width="18" height="18" x="3" y="4" rx="2" ry="2"/><line x1="16" x2="16" y1="2" y2="6"/><line x1="8" x2="8" y1="2" y2="6"/><line x1="3" x2="21" y1="10" y2="10"/><line x1="10" x2="14" y1="16" y2="16"/><line x1="12" x2="12" y1="14" y2="18"/></Icon>;
 
     // --- 4. 建立空白週期的輔助函數 & 初始資料 ---
     const createEmptyQuarter = () => ({
@@ -321,6 +323,7 @@
         return masterMerge(localData, null); 
       });
       
+      // 🌟 分頁切換自動記憶功能 (精準停留，不會再亂跳)
       const [currentYear, setCurrentYear] = useState(() => safeGetItem('12wy_year') || '2026');
       const [currentQuarter, setCurrentQuarter] = useState(() => safeGetItem('12wy_quarter') || 'Q1');
       const [currentWeek, setCurrentWeek] = useState(() => {
@@ -708,6 +711,44 @@
             message: '確定要刪除此任務嗎？',
             onConfirm: () => handleTaskAction(tasks => tasks.filter(t => t.id !== taskId))
          });
+      };
+
+      // 🌟 核心新功能：零授權同步任務至 Google Tasks
+      const handleSyncTasks = (tasksToSync) => {
+        if (!tasksToSync || tasksToSync.length === 0) {
+            setDialog({ isOpen: true, type: 'alert', message: '目前沒有任務可以同步喔！' });
+            return;
+        }
+
+        let taskList = [];
+        tasksToSync.forEach(t => {
+            const count = t.targetDays || 7;
+            const taskName = (t.name || '未命名任務').trim();
+            for(let i=0; i<count; i++) {
+                taskList.push(taskName);
+            }
+        });
+
+        if (taskList.length === 0) return;
+
+        const textToCopy = taskList.join('\n');
+        
+        // 使用臨時的 textarea 確保跨瀏覽器的複製相容性
+        const textArea = document.createElement("textarea");
+        textArea.value = textToCopy;
+        document.body.appendChild(textArea);
+        textArea.select();
+        try {
+            document.execCommand('copy');
+            setDialog({ 
+                isOpen: true, 
+                type: 'alert', 
+                message: `🎉 成功！已為您複製了 ${taskList.length} 筆任務項目。\n\n【免授權安全同步法】：\n1. 請前往您的 Google 日曆 (側邊欄 Tasks)。\n2. 點擊「新增任務」並直接「貼上 (Ctrl+V 或 Cmd+V)」。\n3. Google 會自動將其拆分為 ${taskList.length} 個獨立任務。\n\n接著您就能將它們自由拖曳到日曆上安排時間了！` 
+            });
+        } catch (err) {
+            setDialog({ isOpen: true, type: 'alert', message: '複製失敗，請檢查您的瀏覽器權限或手動反白複製。' });
+        }
+        document.body.removeChild(textArea);
       };
 
       const handleBatchImport = () => {
@@ -1413,7 +1454,7 @@
                         </div>
 
                         {/* === 桌面版：傳統表格 (優雅捲軸) === */}
-                        <div className="hidden md:block overflow-x-auto pb-4 custom-scrollbar relative">
+                        <div className="hidden md:block overflow-x-auto custom-scrollbar relative">
                           <table className="w-full text-left border-collapse min-w-[1050px]">
                             <thead>
                               <tr>
@@ -1424,8 +1465,8 @@
                                   <th key={day} className="px-2 py-3 text-xs font-medium text-zinc-400 border-b border-zinc-100 text-center w-[5%]">{day}</th>
                                 ))}
                                 <th className="px-3 py-3 text-xs font-medium text-zinc-400 border-b border-zinc-100 text-center w-[7%]">達成率</th>
-                                <th className="px-3 py-3 text-xs font-medium text-zinc-400 border-b border-zinc-100 w-[11%]">備註</th>
-                                <th className="px-3 py-3 text-xs font-medium text-zinc-400 border-b border-zinc-100 text-center w-[5%]" data-html2canvas-ignore="true">操作</th>
+                                <th className="px-3 py-3 text-xs font-medium text-zinc-400 border-b border-zinc-100 w-[10%]">備註</th>
+                                <th className="px-3 py-3 text-xs font-medium text-zinc-400 border-b border-zinc-100 text-center w-[6%]" data-html2canvas-ignore="true">操作</th>
                               </tr>
                             </thead>
                             <tbody className="divide-y divide-zinc-50">
@@ -1464,8 +1505,17 @@
                                       <td className="px-3 py-4 text-sm">
                                         <input type="text" value={task.note || ''} onChange={(e) => updateTaskNote(task.id, e.target.value)} placeholder="備註..." className="bg-transparent border-b border-transparent hover:border-zinc-300 focus:border-zinc-900 focus:outline-none transition-colors w-full text-xs text-zinc-500 py-1" />
                                       </td>
+                                      
+                                      {/* 🌟 任務操作區：加入 Google Tasks 同步鈕 */}
                                       <td className="px-3 py-4 text-center" data-html2canvas-ignore="true">
-                                        <button onClick={() => deleteTask(task.id)} className="text-zinc-300 hover:text-rose-500 transition-colors opacity-0 group-hover:opacity-100 p-2 -m-2"><Trash2 className="w-4 h-4 mx-auto" /></button>
+                                        <div className="flex items-center justify-center space-x-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                          <button onClick={() => handleSyncTasks([task])} className="text-zinc-300 hover:text-blue-500 transition-colors p-1" title="複製任務至 Google Tasks">
+                                            <CalendarPlus className="w-4 h-4" />
+                                          </button>
+                                          <button onClick={() => deleteTask(task.id)} className="text-zinc-300 hover:text-rose-500 transition-colors p-1" title="刪除任務">
+                                            <Trash2 className="w-4 h-4" />
+                                          </button>
+                                        </div>
                                       </td>
                                     </tr>
                                   );
@@ -1484,10 +1534,20 @@
                               const taskCompletion = getTaskCompletionRate(task);
                               return (
                                 <div key={task.id} className="bg-white p-4 rounded-xl border border-zinc-200 shadow-sm flex flex-col gap-4 relative">
+                                  
+                                  {/* 🌟 行動版卡片：加入 Google Tasks 同步鈕 */}
                                   <div className="flex items-center justify-between gap-3">
                                      <input type="text" value={task.name} onChange={(e) => updateTaskName(task.id, e.target.value)} className="font-semibold text-zinc-800 bg-transparent border-b border-transparent focus:border-zinc-900 focus:outline-none w-full text-base" placeholder="任務名稱" />
-                                     <button onClick={() => deleteTask(task.id)} className="p-2 -mr-2 text-zinc-300 hover:text-rose-500 transition-colors" data-html2canvas-ignore="true"><Trash2 className="w-4 h-4" /></button>
+                                     <div className="flex items-center space-x-2 shrink-0" data-html2canvas-ignore="true">
+                                       <button onClick={() => handleSyncTasks([task])} className="p-1 text-zinc-300 hover:text-blue-500 transition-colors" title="同步至 Google Tasks">
+                                          <CalendarPlus className="w-4 h-4" />
+                                       </button>
+                                       <button onClick={() => deleteTask(task.id)} className="p-1 text-zinc-300 hover:text-rose-500 transition-colors" title="刪除">
+                                          <Trash2 className="w-4 h-4" />
+                                       </button>
+                                     </div>
                                   </div>
+                                  
                                   <div className="flex items-center justify-between gap-3 text-sm">
                                      <select value={task.goalId || ''} onChange={(e) => updateTaskGoal(task.id, e.target.value)} className="bg-zinc-100 text-zinc-600 text-xs px-2 py-2 rounded-lg border-none focus:outline-none flex-1 truncate">
                                         <option value="">無關聯目標</option>
@@ -1521,6 +1581,20 @@
                             })
                           )}
                         </div>
+
+                        {/* 🌟 底部一鍵同步按鈕 */}
+                        {activeWeekData.tasks.length > 0 && (
+                          <div className="p-4 bg-zinc-50 border-t border-zinc-100 flex justify-end" data-html2canvas-ignore="true">
+                            <button 
+                              onClick={() => handleSyncTasks(activeWeekData.tasks)}
+                              className="flex items-center space-x-2 px-4 py-2 bg-blue-50 text-blue-600 hover:bg-blue-100 hover:text-blue-700 rounded-lg text-sm font-medium transition-colors border border-blue-200 shadow-sm"
+                            >
+                              <CalendarPlus className="w-4 h-4" />
+                              <span>一鍵同步本週所有任務至 Google Tasks</span>
+                            </button>
+                          </div>
+                        )}
+
                        </>
                     )}
 
@@ -1537,7 +1611,7 @@
               <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm overflow-hidden flex flex-col animate-in fade-in zoom-in-95 duration-200">
                 <div className="p-6">
                   <h3 className="font-bold text-zinc-900 mb-2 text-lg">系統提示</h3>
-                  <p className="text-sm text-zinc-600 leading-relaxed">{dialog.message}</p>
+                  <p className="text-sm text-zinc-600 leading-relaxed whitespace-pre-line">{dialog.message}</p>
                 </div>
                 <div className="px-6 py-4 bg-zinc-50 border-t border-zinc-100 flex justify-end space-x-3">
                   {dialog.type === 'confirm' && (
