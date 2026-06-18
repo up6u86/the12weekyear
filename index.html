@@ -15,6 +15,16 @@
   <!-- 引入 Babel 以在瀏覽器中編譯 JSX -->
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 
+  <!-- 🌟 註冊自訂的 Babel Preset，強制使用傳統的 React Runtime 與保留 ES Modules -->
+  <script>
+    Babel.registerPreset('classic-react', {
+      presets: [
+        [Babel.availablePresets['env'], { modules: false }],
+        [Babel.availablePresets['react'], { runtime: 'classic' }]
+      ]
+    });
+  </script>
+
   <!-- 引入 HTML2PDF (用於匯出 A4 PDF) -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
 
@@ -54,8 +64,11 @@
 <body>
   <div id="root"></div>
 
-  <!-- 使用 type="text/babel" data-type="module" 支援 ES Module Import -->
-  <script type="text/babel" data-type="module">
+  <!-- 使用 type="text/babel" data-type="module" 並套用自訂的 Babel Preset -->
+  <script type="text/babel" data-type="module" data-presets="classic-react">
+    /** @jsx React.createElement */
+    /** @jsxFrag React.Fragment */
+
     // --- 1. Firebase 雲端同步模組 (ESM CDN) ---
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
     import { getAuth, signInWithCustomToken, signInAnonymously, onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, setPersistence, browserLocalPersistence } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
@@ -1454,7 +1467,7 @@
                         </div>
 
                         {/* === 桌面版：傳統表格 (優雅捲軸) === */}
-                        <div className="hidden md:block overflow-x-auto custom-scrollbar relative">
+                        <div className="hidden md:block overflow-x-auto pb-4 custom-scrollbar relative">
                           <table className="w-full text-left border-collapse min-w-[1050px]">
                             <thead>
                               <tr>
