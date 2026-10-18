@@ -131,6 +131,9 @@
     const UploadIcon = (p) => <Icon {...p}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" x2="12" y1="3" y2="15"/></Icon>;
     // 🌟 新增：日曆同步圖示
     const CalendarPlus = (p) => <Icon {...p}><rect width="18" height="18" x="3" y="4" rx="2" ry="2"/><line x1="16" x2="16" y1="2" y2="6"/><line x1="8" x2="8" y1="2" y2="6"/><line x1="3" x2="21" y1="10" y2="10"/><line x1="10" x2="14" y1="16" y2="16"/><line x1="12" x2="12" y1="14" y2="18"/></Icon>;
+    // 🌟 新增：排序用的上下箭頭
+    const ChevronUp = (p) => <Icon {...p}><path d="m18 15-6-6-6 6"/></Icon>;
+    const ChevronDown = (p) => <Icon {...p}><path d="m6 9 6 6 6-6"/></Icon>;
 
     // --- 4. 建立空白週期的輔助函數 & 初始資料 ---
     const createEmptyQuarter = () => ({
@@ -724,6 +727,20 @@
             message: '確定要刪除此任務嗎？',
             onConfirm: () => handleTaskAction(tasks => tasks.filter(t => t.id !== taskId))
          });
+      };
+
+      // 🌟 新增：任務排序 (上移 / 下移)
+      // 若當前週尚未編輯 (繼承自上週)，handleTaskAction 會自動將其複製為獨立週後再排序
+      const moveTask = (taskId, direction) => {
+        handleTaskAction(tasks => {
+          const index = tasks.findIndex(t => t.id === taskId);
+          if (index === -1) return tasks;
+          const newIndex = direction === 'up' ? index - 1 : index + 1;
+          if (newIndex < 0 || newIndex >= tasks.length) return tasks;
+          const newTasks = [...tasks];
+          [newTasks[index], newTasks[newIndex]] = [newTasks[newIndex], newTasks[index]];
+          return newTasks;
+        });
       };
 
       // 🌟 核心新功能：零授權同步任務至 Google Tasks
@@ -1468,26 +1485,28 @@
 
                         {/* === 桌面版：傳統表格 (優雅捲軸) === */}
                         <div className="hidden md:block overflow-x-auto pb-4 custom-scrollbar relative">
-                          <table className="w-full text-left border-collapse min-w-[1050px]">
+                          <table className="w-full text-left border-collapse min-w-[1100px]">
                             <thead>
                               <tr>
-                                <th className="px-6 py-3 text-xs font-medium text-zinc-400 border-b border-r border-zinc-100 w-[22%] sticky left-0 bg-white z-20">行動項目</th>
-                                <th className="px-3 py-3 text-xs font-medium text-zinc-400 border-b border-zinc-100 w-[12%]">關聯目標</th>
-                                <th className="px-3 py-3 text-xs font-medium text-zinc-400 border-b border-zinc-100 text-center w-[8%]">每週目標</th>
+                                <th className="px-6 py-3 text-xs font-medium text-zinc-400 border-b border-r border-zinc-100 w-[21%] sticky left-0 bg-white z-20">行動項目</th>
+                                <th className="px-3 py-3 text-xs font-medium text-zinc-400 border-b border-zinc-100 w-[11%]">關聯目標</th>
+                                <th className="px-3 py-3 text-xs font-medium text-zinc-400 border-b border-zinc-100 text-center w-[7%]">每週目標</th>
                                 {DAYS.map(day => (
                                   <th key={day} className="px-2 py-3 text-xs font-medium text-zinc-400 border-b border-zinc-100 text-center w-[5%]">{day}</th>
                                 ))}
                                 <th className="px-3 py-3 text-xs font-medium text-zinc-400 border-b border-zinc-100 text-center w-[7%]">達成率</th>
-                                <th className="px-3 py-3 text-xs font-medium text-zinc-400 border-b border-zinc-100 w-[10%]">備註</th>
-                                <th className="px-3 py-3 text-xs font-medium text-zinc-400 border-b border-zinc-100 text-center w-[6%]" data-html2canvas-ignore="true">操作</th>
+                                <th className="px-3 py-3 text-xs font-medium text-zinc-400 border-b border-zinc-100 w-[9%]">備註</th>
+                                <th className="px-3 py-3 text-xs font-medium text-zinc-400 border-b border-zinc-100 text-center w-[10%]" data-html2canvas-ignore="true">操作</th>
                               </tr>
                             </thead>
                             <tbody className="divide-y divide-zinc-50">
                               {activeWeekData.tasks.length === 0 ? (
                                 <tr><td colSpan={13} className="px-6 py-12 text-center text-zinc-400 text-sm">本週尚未建立任務。</td></tr>
                               ) : (
-                                activeWeekData.tasks.map(task => {
+                                activeWeekData.tasks.map((task, taskIndex) => {
                                   const taskCompletion = getTaskCompletionRate(task);
+                                  const isFirst = taskIndex === 0;
+                                  const isLast = taskIndex === activeWeekData.tasks.length - 1;
                                   return (
                                     <tr key={task.id} className="group hover:bg-zinc-50 transition-colors">
                                       <td className="px-6 py-4 text-sm font-medium text-zinc-700 sticky left-0 bg-white group-hover:bg-zinc-50 transition-colors z-10 border-r border-zinc-100">
@@ -1519,15 +1538,34 @@
                                         <input type="text" value={task.note || ''} onChange={(e) => updateTaskNote(task.id, e.target.value)} placeholder="備註..." className="bg-transparent border-b border-transparent hover:border-zinc-300 focus:border-zinc-900 focus:outline-none transition-colors w-full text-xs text-zinc-500 py-1" />
                                       </td>
                                       
-                                      {/* 🌟 任務操作區：加入 Google Tasks 同步鈕 */}
+                                      {/* 🌟 任務操作區：排序箭頭常駐 + 同步/刪除 hover 顯示 */}
                                       <td className="px-3 py-4 text-center" data-html2canvas-ignore="true">
-                                        <div className="flex items-center justify-center space-x-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                                          <button onClick={() => handleSyncTasks([task])} className="text-zinc-300 hover:text-blue-500 transition-colors p-1" title="複製任務至 Google Tasks">
-                                            <CalendarPlus className="w-4 h-4" />
+                                        <div className="flex items-center justify-center space-x-0.5">
+                                          <button 
+                                            onClick={() => moveTask(task.id, 'up')} 
+                                            disabled={isFirst}
+                                            className={`p-1 rounded transition-colors ${isFirst ? 'text-zinc-200 cursor-not-allowed' : 'text-zinc-400 hover:text-zinc-800 hover:bg-zinc-100'}`} 
+                                            title={isFirst ? '已經在最上方' : '上移'}
+                                          >
+                                            <ChevronUp className="w-4 h-4" />
                                           </button>
-                                          <button onClick={() => deleteTask(task.id)} className="text-zinc-300 hover:text-rose-500 transition-colors p-1" title="刪除任務">
-                                            <Trash2 className="w-4 h-4" />
+                                          <button 
+                                            onClick={() => moveTask(task.id, 'down')} 
+                                            disabled={isLast}
+                                            className={`p-1 rounded transition-colors ${isLast ? 'text-zinc-200 cursor-not-allowed' : 'text-zinc-400 hover:text-zinc-800 hover:bg-zinc-100'}`} 
+                                            title={isLast ? '已經在最下方' : '下移'}
+                                          >
+                                            <ChevronDown className="w-4 h-4" />
                                           </button>
+                                          <div className="w-px h-4 bg-zinc-200 mx-1"></div>
+                                          <div className="flex items-center space-x-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                                            <button onClick={() => handleSyncTasks([task])} className="text-zinc-300 hover:text-blue-500 transition-colors p-1" title="複製任務至 Google Tasks">
+                                              <CalendarPlus className="w-4 h-4" />
+                                            </button>
+                                            <button onClick={() => deleteTask(task.id)} className="text-zinc-300 hover:text-rose-500 transition-colors p-1" title="刪除任務">
+                                              <Trash2 className="w-4 h-4" />
+                                            </button>
+                                          </div>
                                         </div>
                                       </td>
                                     </tr>
@@ -1543,19 +1581,38 @@
                           {activeWeekData.tasks.length === 0 ? (
                             <div className="text-center text-zinc-400 py-8 text-sm">本週尚未建立任務。</div>
                           ) : (
-                            activeWeekData.tasks.map(task => {
+                            activeWeekData.tasks.map((task, taskIndex) => {
                               const taskCompletion = getTaskCompletionRate(task);
+                              const isFirst = taskIndex === 0;
+                              const isLast = taskIndex === activeWeekData.tasks.length - 1;
                               return (
                                 <div key={task.id} className="bg-white p-4 rounded-xl border border-zinc-200 shadow-sm flex flex-col gap-4 relative">
                                   
-                                  {/* 🌟 行動版卡片：加入 Google Tasks 同步鈕 */}
+                                  {/* 🌟 行動版卡片：加入上下排序鈕 */}
                                   <div className="flex items-center justify-between gap-3">
                                      <input type="text" value={task.name} onChange={(e) => updateTaskName(task.id, e.target.value)} className="font-semibold text-zinc-800 bg-transparent border-b border-transparent focus:border-zinc-900 focus:outline-none w-full text-base" placeholder="任務名稱" />
-                                     <div className="flex items-center space-x-2 shrink-0" data-html2canvas-ignore="true">
-                                       <button onClick={() => handleSyncTasks([task])} className="p-1 text-zinc-300 hover:text-blue-500 transition-colors" title="同步至 Google Tasks">
+                                     <div className="flex items-center space-x-1 shrink-0" data-html2canvas-ignore="true">
+                                       <button 
+                                          onClick={() => moveTask(task.id, 'up')} 
+                                          disabled={isFirst}
+                                          className={`p-1.5 rounded ${isFirst ? 'text-zinc-200' : 'text-zinc-400 hover:text-zinc-800 active:bg-zinc-100'}`} 
+                                          title="上移"
+                                       >
+                                          <ChevronUp className="w-4 h-4" />
+                                       </button>
+                                       <button 
+                                          onClick={() => moveTask(task.id, 'down')} 
+                                          disabled={isLast}
+                                          className={`p-1.5 rounded ${isLast ? 'text-zinc-200' : 'text-zinc-400 hover:text-zinc-800 active:bg-zinc-100'}`} 
+                                          title="下移"
+                                       >
+                                          <ChevronDown className="w-4 h-4" />
+                                       </button>
+                                       <div className="w-px h-4 bg-zinc-200 mx-1"></div>
+                                       <button onClick={() => handleSyncTasks([task])} className="p-1.5 text-zinc-300 hover:text-blue-500 transition-colors" title="同步至 Google Tasks">
                                           <CalendarPlus className="w-4 h-4" />
                                        </button>
-                                       <button onClick={() => deleteTask(task.id)} className="p-1 text-zinc-300 hover:text-rose-500 transition-colors" title="刪除">
+                                       <button onClick={() => deleteTask(task.id)} className="p-1.5 text-zinc-300 hover:text-rose-500 transition-colors" title="刪除">
                                           <Trash2 className="w-4 h-4" />
                                        </button>
                                      </div>
